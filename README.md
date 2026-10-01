@@ -1,6 +1,6 @@
-# 🧭🕸️ Webkit Webview Ai Skill Skill
+# 🧭🕸️ WebKit WebView AI Skill
 
-![Webkit Webview Ai Skill Banner](banner.png)
+![WebKit WebView AI Skill Banner](banner.png)
 
 > An AI skill trained to find and quash WKWebView and Chrome discrepancies.  
 
