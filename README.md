@@ -2,7 +2,7 @@
 
 ![WebKit WebView AI Skill Banner](banner.png)
 
-> An AI skill trained to find and quash WKWebView and Chrome discrepancies.  
+> An AI skill that finds and fixes the bugs where a web UI works in Chrome but breaks inside a Mac app's WKWebView.
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE.txt) [![Agent Skill](https://img.shields.io/badge/Agent%20Skill-SKILL.md-8A2BE2.svg)](https://github.com/anthropics/skills) [![Version](https://img.shields.io/github/v/release/adriangrantdotorg/webkit-webview-ai-skill?color=orange&label=Version)](https://github.com/adriangrantdotorg/webkit-webview-ai-skill/releases) [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/adriangrantdotorg/webkit-webview-ai-skill/pulls)
 
@@ -17,7 +17,7 @@
 
 | | 😩 Without this Skill | 😌 With this Skill |
 | --- | :---: | :---: |
-| 🐞 Known WebKit traps | what the AI half-remembers | **45, each with its fix** |
+| 🐞 Known WebKit traps | what the AI half-remembers | **50+, each with its fix** |
 | 🔁 Tries until it works | 🧪 3–5 | **1** |
 | ✅ Where a fix is verified | Chrome mock (can't fail) | **real WebKit** |
 | 🔐 Windows or permission prompts while testing | 🧪 several | **0** |
@@ -37,6 +37,7 @@ Before touching code, the AI matches the symptom to a known WebKit trap, rules o
 - 🖼️ **Images and links that load** — mixed content, blocked cross-origin images, the wrong browser opening
 - 🔄 **Settings that reach every window** — per-window stores, pre-warmed windows, untracked SolidJS reads
 - ✍️ **Native spelling and grammar** — squiggles on, the Mac spelling panel, a trimmed right-click menu
+- 📋 **Inline edits that wait for you** — no surprise commits from WebKit's synthetic blurs
 - ✨ **Redraws that never blink** — scroll, focus, media and animations survive a re-render
 
 ---
@@ -44,10 +45,6 @@ Before touching code, the AI matches the symptom to a known WebKit trap, rules o
 ## 🚀 Installation
 
 Needs an AI assistant that supports [Agent Skills](https://github.com/anthropics/skills). Clone into the folder for your platform:
-
-
-
----
 
 ```bash
 # Claude Code
@@ -63,6 +60,8 @@ git clone https://github.com/adriangrantdotorg/webkit-webview-ai-skill.git ~/.ag
 | **[Claude Code](https://code.claude.com/docs/en/skills)** | `~/.claude/skills/` |
 | **[Cursor](https://cursor.com/docs/skills)** | `~/.cursor/skills/` |
 | **[ChatGPT & Codex](https://learn.chatgpt.com/docs/build-skills)** | `~/.agents/skills/` |
+
+---
 
 ## 💡 Usage
 
