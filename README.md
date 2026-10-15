@@ -32,13 +32,13 @@ Before touching code, the AI matches the symptom to a known WebKit trap, rules o
 
 ![The same bug report with and without the skill: without it, four tries; with it, one try and time to spare](docs/media/with-vs-without-skill.svg)
 
-- 🖱️ **Clicks and keys that just work** — swallowed first clicks, stuck focus, dead shortcuts, Escape eaten by autocorrect
+- 🖱️ **Clicks and keys that just work** — swallowed first clicks, dead shortcuts, palettes that skip the top row
 - 🔬 **Offscreen WKWebView probe** — real WebKit clicks and keys, no window, no permission prompt
 - 🖼️ **Images and links that load** — mixed content, blocked cross-origin images, the wrong browser opening
 - 🔄 **Settings that reach every window** — per-window stores, pre-warmed windows, untracked SolidJS reads
 - ✍️ **Native spelling and grammar** — squiggles on, the Mac spelling panel, a trimmed right-click menu
-- 📋 **Inline edits that wait for you** — no surprise commits from WebKit's synthetic blurs
-- ✨ **Redraws that never blink** — scroll, focus, media and animations survive a re-render
+- ✏️ **Inline edits that wait for you** — no surprise commits from synthetic blurs or stolen focus
+- ✨ **Redraws that never blink** — scroll, focus and animations survive; sidebars stop creeping wider
 
 ---
 
