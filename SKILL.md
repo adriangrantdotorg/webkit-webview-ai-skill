@@ -812,3 +812,15 @@ and read the active section back.
 - **Trigger:** opening a modal list (`⌘P` Command Palette or `⌘O` Quick Switcher) highlights whichever row happens to sit under the stationary mouse pointer instead of the first row (`selected = 0`), or pressing `Enter` runs the hovered row instead of the top match.
 - **Discrimination:** when an overlay flips from `hidden` to visible underneath the pointer, WebKit immediately dispatches `mouseenter` / `mouseover` on the element now under the cursor even though the mouse never moved. If rows wire `row.addEventListener("mouseenter", () => { this.selected = idx; })`, that synthetic entry overwrites `this.selected = 0` on open.
 - **Action:** never use `mouseenter` to change modal list selection. Record `lastMouseX = -1, lastMouseY = -1` on `open()`, and listen for `mousemove` on each row, updating `this.selected` only when `e.clientX !== this.lastMouseX || e.clientY !== this.lastMouseY`.
+
+## 54. Moving the DOM selection into a contenteditable steals focus from the field the user is typing in
+
+**Trigger:** a background job sets the document selection on a timer or after a scroll (a spell-check walk that parks the caret on each line, a restore-selection step, a "reveal" helper), and keys typed in a find box, filter, rename field or table cell land in the document instead ("⌘F then ⌫ deletes content in the note").
+**Discrimination:** headless tests pass because nothing else has focus. In WebKit, `getSelection().collapse(node)` inside a contenteditable moves FOCUS there; restoring the saved anchor (the input's container node) does not give focus back to the `<input>`. With a search match selected, the next ⌫ deletes the match.
+**Action:** gate the job on `document.activeElement`: run only when it is `null`, `<body>` / `<html>`, or the editor's own content element (not a field inside a `contenteditable="false"` widget); otherwise reschedule. Check it both when scheduling and when the job starts.
+
+## 55. A stub for the native bridge must parse the message, and never forward what it stubs
+
+**Trigger:** a test replaces `window.webkit.messageHandlers.<name>.postMessage` to catch a side-effecting call (clipboard, Finder, a native menu) before it reaches native.
+**Discrimination:** the page posts `JSON.stringify({ id, type, ...params })`, a STRING. A stub that tests `m.type` sees `undefined`, matches nothing, forwards everything, and the real side effect happens: a Copy-button test can overwrite the real clipboard that way.
+**Action:** `const m = JSON.parse(raw)` first; for the stubbed type, record it and RETURN (never call the original). To fake a native reply to a `call()`, answer through the receive hook: `window.__bridgeRecv({ id: m.id, ok: true, data: { … } })` (use your page's own receive hook name) (e.g. the item a native context menu would return).
