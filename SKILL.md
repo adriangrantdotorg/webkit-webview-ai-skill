@@ -823,7 +823,7 @@ and read the active section back.
 
 **Trigger:** a test replaces `window.webkit.messageHandlers.<name>.postMessage` to catch a side-effecting call (clipboard, Finder, a native menu) before it reaches native.
 **Discrimination:** the page posts `JSON.stringify({ id, type, ...params })`, a STRING. A stub that tests `m.type` sees `undefined`, matches nothing, forwards everything, and the real side effect happens: a Copy-button test can overwrite the real clipboard that way.
-**Action:** `const m = JSON.parse(raw)` first; for the stubbed type, record it and RETURN (never call the original). To fake a native reply to a `call()`, answer through the page's receive hook: `window.__bridgeRecv({ id: m.id, ok: true, data: { … } })` (e.g. the item a native context menu would return).
+**Action:** `const m = JSON.parse(raw)` first; for the stubbed type, record it and RETURN (never call the original). To fake a native reply to a `call()`, answer through the receive hook: `window.__bridgeRecv({ id: m.id, ok: true, data: { … } })` (whatever your page's receive hook is called) (e.g. the item a native context menu would return).
 
 ## 56. Spelling squiggles live on the TEXT NODE, and `spellcheck="false"` is read per line
 
@@ -834,7 +834,7 @@ a checked line it does not, because WebKit checks the paragraph the selection le
 **Action:** marks are attached to the text node, so give that text a NEW element: a framework that re-parents the same
 text node into a different element (CodeMirror after a mark's `tagName` changes) clears them; a text node replaced
 behind the framework's back also clears them but breaks the framework's view (never do that). Verify with
-a pixel snapshot of the page, not the DOM: markers are not in the DOM.
+a pixel snapshot of the page (`takeSnapshot`), not the DOM: markers are not in the DOM.
 
 ## 57. Escape key dismissal for WKWebView modals / lightboxes requires both a capture-phase `window` listener and an AppKit `keyCode == 53` bridge, plus `.blur()` on the trigger when closing
 
@@ -842,8 +842,8 @@ a pixel snapshot of the page, not the DOM: markers are not in the DOM.
 - **Discrimination:** a bubble-phase `document.addEventListener("keydown")` only fires when `WKWebView` is `firstResponder` and no inner handler stops propagation. Furthermore, calling `trigger.focus()` on close activates `.linked:focus-visible { filter: brightness(1.06) }` in WebKit even after a mouse click, leaving a CSS filter raster buffer stuck on the trigger element.
 - **Action:**
   1. **Capture-phase `window` listener in JS:** attach `window.addEventListener("keydown", (e) => { if (isOpen() && (e.key === "Escape" || e.key === "Esc" || e.keyCode === 27)) { e.preventDefault(); e.stopPropagation(); close(); } }, true)` and focus the dialog container (`tabindex="-1"`) on open.
-  2. **AppKit `NSEvent` local monitor fallback:** in `NSEvent.addLocalMonitorForEvents(matching: .keyDown)`, when `e.keyCode == 53` (`Escape`) in a web view window and `win.firstResponder !== wc.web.webView`, restore `win.makeFirstResponder(wc.web.webView)` and invoke the JS `escape()` handler directly (`wc.web.call("escape")`).
-  3. **Blur the trigger on close:** call `trigger.blur()` instead of `trigger.focus()` when closing a click-triggered lightbox so `:focus-visible` filters never stick to the trigger element.
+  2. **AppKit `NSEvent` local monitor fallback:** in `NSEvent.addLocalMonitorForEvents(matching: .keyDown)`, when `e.keyCode == 53` (`Escape`) in a web-view window and `win.firstResponder !== wc.web.webView`, restore `win.makeFirstResponder(wc.web.webView)` and invoke the JS `escape()` handler directly (`wc.web.call("escape")`).
+  3. **Blur the trigger on close:** call `trigger.blur()` instead of `trigger.focus()` when closing a click-triggered lightbox so `:focus-visible` filters never stick to the artwork.
 
 ## 58. A HIDDEN window holds every CSS animation at 0, and synthetic pointer events can't be captured
 
@@ -861,3 +861,20 @@ a pixel snapshot of the page, not the DOM: markers are not in the DOM.
      dispatched test drag still runs; dispatch pointerdown / pointermove / pointerup on the element itself.
   3. Evals sent through `curl -d "{...}"` break on JS regex escapes like `\(` (invalid JSON); send them from a
      Python script with `json.dumps` instead.
+
+## 44. An off-screen probe page has its timers held to ~1 s: test waits are a message-channel yield
+
+*Trigger:* a headless click test (an off-screen WKWebView probe) suddenly
+times out or prints nothing, after the test grew by a few steps. *Discrimination:* the page is not slow: an off-screen
+window's page gets its `setTimeout`s throttled, so after a couple of seconds every `await sleep(30)` takes about a
+second (measured: 13 sections at 0.2 s, 2 s, 10 s, 22 s, 31 s). `WKPreferences.inactiveSchedulingPolicy = .none` did
+NOT help. *Action:* when the page renders synchronously, shadow the probe's `sleep` in the test with
+`const sleep = () => new Promise((r) => { const c = new MessageChannel(); c.port1.onmessage = () => r(); c.port2.postMessage(0); });`
+(31 s → 1.2 s), and let the probe take its time limit from an env var (`WEBPROBE_TIMEOUT`).
+
+## 45. A tooltip helper that sets `position: relative` moves absolutely placed controls
+
+*Trigger:* a `[data-tip] { position: relative }` (or any attribute-selector helper) on a page where some tooltip owner
+is ALSO absolutely positioned (the ✕ inside a search field). *Discrimination:* equal specificity, so the later rule wins
+and the ✕ joins the flex row: it sat on the field's border, and a hit test still passed. *Action:*
+`:where([data-tip]) { position: relative; }` (zero specificity), and a guard that the ✕'s box sits INSIDE the field's.
