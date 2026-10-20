@@ -823,4 +823,16 @@ and read the active section back.
 
 **Trigger:** a test replaces `window.webkit.messageHandlers.<name>.postMessage` to catch a side-effecting call (clipboard, Finder, a native menu) before it reaches native.
 **Discrimination:** the page posts `JSON.stringify({ id, type, ...params })`, a STRING. A stub that tests `m.type` sees `undefined`, matches nothing, forwards everything, and the real side effect happens: a Copy-button test can overwrite the real clipboard that way.
-**Action:** `const m = JSON.parse(raw)` first; for the stubbed type, record it and RETURN (never call the original). To fake a native reply to a `call()`, answer through the receive hook: `window.__bridgeRecv({ id: m.id, ok: true, data: { … } })` (use your page's own receive hook name) (e.g. the item a native context menu would return).
+**Action:** `const m = JSON.parse(raw)` first; for the stubbed type, record it and RETURN (never call the original). To fake a native reply to a `call()`, answer through the page's own receive hook, e.g. `window.__bridgeRecv({ id: m.id, ok: true, data: { … } })` (e.g. the item a native context menu would return).
+
+## 56. Spelling squiggles live on the TEXT NODE, and `spellcheck="false"` is read per line
+
+**Trigger:** you want WebKit's continuous spell check to skip part of a contenteditable (inline code, a token) and the
+squiggles stay. **Discrimination:** `spellcheck="false"` on a block element (a whole line) works; on an inline span inside
+a checked line it does not, because WebKit checks the paragraph the selection left and marks every misspelling in it
+(measured with a selection-parking recheck walk). Swapping the attribute later never clears marks already drawn.
+**Action:** marks are attached to the text node, so give that text a NEW element: a framework that re-parents the same
+text node into a different element (CodeMirror after a mark's `tagName` changes) clears them; a text node replaced
+behind the framework's back also clears them but breaks the framework's view (never do that). Verify with
+a snapshot of the page's pixels (e.g. `WKWebView.takeSnapshot`), not the DOM: markers are not in the DOM.
+
