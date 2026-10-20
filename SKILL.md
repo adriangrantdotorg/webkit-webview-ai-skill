@@ -823,7 +823,7 @@ and read the active section back.
 
 **Trigger:** a test replaces `window.webkit.messageHandlers.<name>.postMessage` to catch a side-effecting call (clipboard, Finder, a native menu) before it reaches native.
 **Discrimination:** the page posts `JSON.stringify({ id, type, ...params })`, a STRING. A stub that tests `m.type` sees `undefined`, matches nothing, forwards everything, and the real side effect happens: a Copy-button test can overwrite the real clipboard that way.
-**Action:** `const m = JSON.parse(raw)` first; for the stubbed type, record it and RETURN (never call the original). To fake a native reply to a `call()`, answer through the receive hook: `window.__bridgeRecv({ id: m.id, ok: true, data: { … } })` (whatever your page's receive hook is called) (e.g. the item a native context menu would return).
+**Action:** `const m = JSON.parse(raw)` first; for the stubbed type, record it and RETURN (never call the original). To fake a native reply to a `call()`, answer through the receive hook: `window.__bridgeRecv({ id: m.id, ok: true, data: { … } })` (e.g. the item a native context menu would return).
 
 ## 56. Spelling squiggles live on the TEXT NODE, and `spellcheck="false"` is read per line
 
@@ -834,7 +834,7 @@ a checked line it does not, because WebKit checks the paragraph the selection le
 **Action:** marks are attached to the text node, so give that text a NEW element: a framework that re-parents the same
 text node into a different element (CodeMirror after a mark's `tagName` changes) clears them; a text node replaced
 behind the framework's back also clears them but breaks the framework's view (never do that). Verify with
-a pixel snapshot of the page (`takeSnapshot`), not the DOM: markers are not in the DOM.
+a pixel snapshot of the page, not the DOM: markers are not in the DOM.
 
 ## 57. Escape key dismissal for WKWebView modals / lightboxes requires both a capture-phase `window` listener and an AppKit `keyCode == 53` bridge, plus `.blur()` on the trigger when closing
 
@@ -842,7 +842,7 @@ a pixel snapshot of the page (`takeSnapshot`), not the DOM: markers are not in t
 - **Discrimination:** a bubble-phase `document.addEventListener("keydown")` only fires when `WKWebView` is `firstResponder` and no inner handler stops propagation. Furthermore, calling `trigger.focus()` on close activates `.linked:focus-visible { filter: brightness(1.06) }` in WebKit even after a mouse click, leaving a CSS filter raster buffer stuck on the trigger element.
 - **Action:**
   1. **Capture-phase `window` listener in JS:** attach `window.addEventListener("keydown", (e) => { if (isOpen() && (e.key === "Escape" || e.key === "Esc" || e.keyCode === 27)) { e.preventDefault(); e.stopPropagation(); close(); } }, true)` and focus the dialog container (`tabindex="-1"`) on open.
-  2. **AppKit `NSEvent` local monitor fallback:** in `NSEvent.addLocalMonitorForEvents(matching: .keyDown)`, when `e.keyCode == 53` (`Escape`) in a web-view window and `win.firstResponder !== wc.web.webView`, restore `win.makeFirstResponder(wc.web.webView)` and invoke the JS `escape()` handler directly (`wc.web.call("escape")`).
+  2. **AppKit `NSEvent` local monitor fallback:** in `NSEvent.addLocalMonitorForEvents(matching: .keyDown)`, when `e.keyCode == 53` (`Escape`) in a dashboard window and `win.firstResponder !== wc.web.webView`, restore `win.makeFirstResponder(wc.web.webView)` and invoke the JS `escape()` handler directly (`wc.web.call("escape")`).
   3. **Blur the trigger on close:** call `trigger.blur()` instead of `trigger.focus()` when closing a click-triggered lightbox so `:focus-visible` filters never stick to the artwork.
 
 ## 58. A HIDDEN window holds every CSS animation at 0, and synthetic pointer events can't be captured
@@ -878,3 +878,49 @@ NOT help. *Action:* when the page renders synchronously, shadow the probe's `sle
 is ALSO absolutely positioned (the ✕ inside a search field). *Discrimination:* equal specificity, so the later rule wins
 and the ✕ joins the flex row: it sat on the field's border, and a hit test still passed. *Action:*
 `:where([data-tip]) { position: relative; }` (zero specificity), and a guard that the ✕'s box sits INSIDE the field's.
+
+## 59. An effect that edits a frame document and then calls `measure()` re-runs on every measure
+
+*Trigger:* a Solid `createEffect` marks or rewrites nodes inside an email / preview frame and then re-fits the frame
+(`measure()`, any height or scale write); the marks keep being rebuilt, or state set on them (a "current" attribute)
+disappears a moment later. *Discrimination:* the effect only meant to depend on its input (the search terms), but
+`measure` READS signals (height, scale), and an effect tracks every signal read inside it, so each measure re-runs the
+effect, which re-marks, which measures again. *Action:* call the measure untracked, `untrack(measure)`, so the effect
+depends only on what it should.
+
+## 60. Anything you hang on nodes INSIDE an iframe dies when the frame reloads
+
+*Trigger:* a "current item" / selection / flag stored as an attribute on elements inside a frame's document (the
+current search match) is lost after the conversation finishes loading. *Discrimination:* the frame re-loads when its
+full body arrives (hydration), every node in it is new, and the marks are re-made; the attribute was the only record.
+*Action:* keep the state in the PARENT as a position or id (`hitIndex`), and re-apply the attribute after every
+re-mark (`recountHits`). Never read the state back from the DOM attribute.
+
+## 61. Two async "do X once the page settles" jobs race; the late one undoes the user
+
+*Trigger:* an effect starts a polling job on open ("scroll to the first match once the frames load") and the user's
+first keypress is undone a second later. *Discrimination:* opening a search result fires the effect twice (the query
+changed AND the selection changed); both jobs poll, and the slower one scrolls back after the user stepped. Seen only
+in a log of every scroll with timestamps. *Action:* a serial number per job (only the newest may act) plus a counter
+the user's own action bumps (a job started before the user acted gives up).
+
+## 62. Headless probe hygiene for a browser-mock build under real WebKit
+
+*Trigger:* writing or extending a Swift probe that drives the mock app in an off-screen WKWebView. *Discrimination:*
+each item below is a common cause of a failed run; most failures are the probe, not the app, so read these before
+blaming the code. *Action:*
+- Steps as `web.callAsyncJavaScript(body, in: .page)` so a step can `await`; wrap each body in
+  `try { … } catch (e) { return 'threw: ' + e.message }` so an exception names itself instead of "A JavaScript
+  exception occurred".
+- `cfg.websiteDataStore = .nonPersistent()`: the mock saves its prefs in localStorage, and a template made by the last
+  run changed the next run's results.
+- Stub `navigator.clipboard.writeText` before any copy: a mock that "writes the clipboard" writes the Mac's REAL
+  pasteboard (`CFPasteboardSetExpirationDate` in the output is the tell).
+- In a Swift `"""` string a JS regex escape needs two backslashes (`/\\s+/`, `/\\?/`); one is a Swift compile error
+  that also shows as "cannot convert String to (String, String)" on the step array.
+- A bare key in a Gmail-style keymap waits the sequence beat (~350 ms) before it runs: sleep past it.
+- Record which binding a key ran (a `window.__lastAction` set in the dispatcher) before suspecting the handler.
+- Close what earlier steps opened (Settings ate a probe's `n` as typing in its search box), and check the fixture's
+  facts (a template WITH a fill-in rightly took the cursor the step expected on another line).
+- Write the composer's state through its editor (`.ProseMirror`'s `.editor`), not synthetic `beforeinput` events,
+  which WebKit doesn't route for synthetic input.
