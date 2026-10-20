@@ -823,7 +823,7 @@ and read the active section back.
 
 **Trigger:** a test replaces `window.webkit.messageHandlers.<name>.postMessage` to catch a side-effecting call (clipboard, Finder, a native menu) before it reaches native.
 **Discrimination:** the page posts `JSON.stringify({ id, type, ...params })`, a STRING. A stub that tests `m.type` sees `undefined`, matches nothing, forwards everything, and the real side effect happens: a Copy-button test can overwrite the real clipboard that way.
-**Action:** `const m = JSON.parse(raw)` first; for the stubbed type, record it and RETURN (never call the original). To fake a native reply to a `call()`, answer through the page's own receive hook, e.g. `window.__bridgeRecv({ id: m.id, ok: true, data: { … } })` (e.g. the item a native context menu would return).
+**Action:** `const m = JSON.parse(raw)` first; for the stubbed type, record it and RETURN (never call the original). To fake a native reply to a `call()`, answer through the receive hook: `window.__bridgeRecv({ id: m.id, ok: true, data: { … } })` (e.g. the item a native context menu would return).
 
 ## 56. Spelling squiggles live on the TEXT NODE, and `spellcheck="false"` is read per line
 
@@ -834,5 +834,13 @@ a checked line it does not, because WebKit checks the paragraph the selection le
 **Action:** marks are attached to the text node, so give that text a NEW element: a framework that re-parents the same
 text node into a different element (CodeMirror after a mark's `tagName` changes) clears them; a text node replaced
 behind the framework's back also clears them but breaks the framework's view (never do that). Verify with
-a snapshot of the page's pixels (e.g. `WKWebView.takeSnapshot`), not the DOM: markers are not in the DOM.
+a snapshot of the rendered page pixels, not the DOM: markers are not in the DOM.
 
+## 57. Escape key dismissal for WKWebView modals / lightboxes requires both a capture-phase `window` listener and an AppKit `keyCode == 53` bridge, plus `.blur()` on the trigger when closing
+
+- **Trigger:** a modal or lightbox opened by clicking an element inside a `WKWebView` fails to close on `Escape` when the web view is not the window's `firstResponder` (or when a focused child swallows bubble-phase key events), or closing the modal leaves the trigger element looking slightly washed out / altered (`:focus-visible`).
+- **Discrimination:** a bubble-phase `document.addEventListener("keydown")` only fires when `WKWebView` is `firstResponder` and no inner handler stops propagation. Furthermore, calling `trigger.focus()` on close activates `.linked:focus-visible { filter: brightness(1.06) }` in WebKit even after a mouse click, leaving a CSS filter raster buffer stuck on the trigger element.
+- **Action:**
+  1. **Capture-phase `window` listener in JS:** attach `window.addEventListener("keydown", (e) => { if (isOpen() && (e.key === "Escape" || e.key === "Esc" || e.keyCode === 27)) { e.preventDefault(); e.stopPropagation(); close(); } }, true)` and focus the dialog container (`tabindex="-1"`) on open.
+  2. **AppKit `NSEvent` local monitor fallback:** in `NSEvent.addLocalMonitorForEvents(matching: .keyDown)`, when `e.keyCode == 53` (`Escape`) in a web-view window and `win.firstResponder !== webView`, restore `win.makeFirstResponder(webView)` and invoke the JS `escape()` handler directly (e.g. `webView.evaluateJavaScript("escape()")`).
+  3. **Blur the trigger on close:** call `trigger.blur()` instead of `trigger.focus()` when closing a click-triggered lightbox so `:focus-visible` filters never stick to the trigger.
