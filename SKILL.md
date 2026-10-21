@@ -823,7 +823,7 @@ and read the active section back.
 
 **Trigger:** a test replaces `window.webkit.messageHandlers.<name>.postMessage` to catch a side-effecting call (clipboard, Finder, a native menu) before it reaches native.
 **Discrimination:** the page posts `JSON.stringify({ id, type, ...params })`, a STRING. A stub that tests `m.type` sees `undefined`, matches nothing, forwards everything, and the real side effect happens: a Copy-button test can overwrite the real clipboard that way.
-**Action:** `const m = JSON.parse(raw)` first; for the stubbed type, record it and RETURN (never call the original). To fake a native reply to a `call()`, answer through the receive hook: `window.__bridgeRecv({ id: m.id, ok: true, data: { … } })` (e.g. the item a native context menu would return).
+**Action:** `const m = JSON.parse(raw)` first; for the stubbed type, record it and RETURN (never call the original). To fake a native reply to a `call()`, answer through the receive hook: `window.__bridgeRecv({ id: m.id, ok: true, data: { … } })` (whatever your page names its receive hook) (e.g. the item a native context menu would return).
 
 ## 56. Spelling squiggles live on the TEXT NODE, and `spellcheck="false"` is read per line
 
@@ -834,7 +834,7 @@ a checked line it does not, because WebKit checks the paragraph the selection le
 **Action:** marks are attached to the text node, so give that text a NEW element: a framework that re-parents the same
 text node into a different element (CodeMirror after a mark's `tagName` changes) clears them; a text node replaced
 behind the framework's back also clears them but breaks the framework's view (never do that). Verify with
-a pixel snapshot of the page, not the DOM: markers are not in the DOM.
+page pixels (`WKWebView.takeSnapshot`), not the DOM: markers are not in the DOM.
 
 ## 57. Escape key dismissal for WKWebView modals / lightboxes requires both a capture-phase `window` listener and an AppKit `keyCode == 53` bridge, plus `.blur()` on the trigger when closing
 
@@ -842,8 +842,8 @@ a pixel snapshot of the page, not the DOM: markers are not in the DOM.
 - **Discrimination:** a bubble-phase `document.addEventListener("keydown")` only fires when `WKWebView` is `firstResponder` and no inner handler stops propagation. Furthermore, calling `trigger.focus()` on close activates `.linked:focus-visible { filter: brightness(1.06) }` in WebKit even after a mouse click, leaving a CSS filter raster buffer stuck on the trigger element.
 - **Action:**
   1. **Capture-phase `window` listener in JS:** attach `window.addEventListener("keydown", (e) => { if (isOpen() && (e.key === "Escape" || e.key === "Esc" || e.keyCode === 27)) { e.preventDefault(); e.stopPropagation(); close(); } }, true)` and focus the dialog container (`tabindex="-1"`) on open.
-  2. **AppKit `NSEvent` local monitor fallback:** in `NSEvent.addLocalMonitorForEvents(matching: .keyDown)`, when `e.keyCode == 53` (`Escape`) in a dashboard window and `win.firstResponder !== wc.web.webView`, restore `win.makeFirstResponder(wc.web.webView)` and invoke the JS `escape()` handler directly (`wc.web.call("escape")`).
-  3. **Blur the trigger on close:** call `trigger.blur()` instead of `trigger.focus()` when closing a click-triggered lightbox so `:focus-visible` filters never stick to the artwork.
+  2. **AppKit `NSEvent` local monitor fallback:** in `NSEvent.addLocalMonitorForEvents(matching: .keyDown)`, when `e.keyCode == 53` (`Escape`) in a web-view window and `win.firstResponder !== wc.web.webView`, restore `win.makeFirstResponder(wc.web.webView)` and invoke the JS `escape()` handler directly (`wc.web.call("escape")`).
+  3. **Blur the trigger on close:** call `trigger.blur()` instead of `trigger.focus()` when closing a click-triggered lightbox so `:focus-visible` filters never stick to the trigger.
 
 ## 58. A HIDDEN window holds every CSS animation at 0, and synthetic pointer events can't be captured
 
@@ -907,7 +907,7 @@ the user's own action bumps (a job started before the user acted gives up).
 ## 62. Headless probe hygiene for a browser-mock build under real WebKit
 
 *Trigger:* writing or extending a Swift probe that drives the mock app in an off-screen WKWebView. *Discrimination:*
-each item below is a common cause of a failed run; most failures are the probe, not the app, so read these before
+each item below is a common way a probe run fails; most failures are the probe, not the app, so read these before
 blaming the code. *Action:*
 - Steps as `web.callAsyncJavaScript(body, in: .page)` so a step can `await`; wrap each body in
   `try { … } catch (e) { return 'threw: ' + e.message }` so an exception names itself instead of "A JavaScript
@@ -919,8 +919,26 @@ blaming the code. *Action:*
 - In a Swift `"""` string a JS regex escape needs two backslashes (`/\\s+/`, `/\\?/`); one is a Swift compile error
   that also shows as "cannot convert String to (String, String)" on the step array.
 - A bare key in a Gmail-style keymap waits the sequence beat (~350 ms) before it runs: sleep past it.
-- Record which binding a key ran (a `window.__lastAction` set in the dispatcher) before suspecting the handler.
+- Record which binding a key ran (`window.__lastAction` in the dispatcher) before suspecting the handler.
 - Close what earlier steps opened (Settings ate a probe's `n` as typing in its search box), and check the fixture's
   facts (a template WITH a fill-in rightly took the cursor the step expected on another line).
 - Write the composer's state through its editor (`.ProseMirror`'s `.editor`), not synthetic `beforeinput` events,
   which WebKit doesn't route for synthetic input.
+
+## 63. Key handlers key off STATE, never `e.target`; element handlers skip keys the app already handled
+
+- **Trigger:** a key works "only sometimes" (Esc leaves a filter on some presses and not others), or one key press does
+  two things (Space played / paused AND toggled the seat that had focus).
+- **Discrimination:** two separate causes, both measured. (1) The Escape branch tested `e.target.id === "pagefilter-input"`:
+  after a click focused something else, or when the native shell's key monitor forwarded Esc through a page hook that
+  calls the handler with `new KeyboardEvent("keydown", { key: "Escape" })` WITHOUT dispatching it (`e.target` is null),
+  the branch never ran. (2) A document-level capture handler ran the app shortcut and `preventDefault()`ed it, and the
+  focused element's own `keydown` (`Enter || " "` → activate) still fired, because preventDefault does not stop
+  propagation.
+- **Action:**
+  1. Decide from app state: "is the filter engaged" = has text, OR its field has focus, OR it was opened by its
+     shortcut. Clear it, blur it, close it from any focus and from the synthetic forward path.
+  2. Element handlers return early on `e.defaultPrevented`, and a list item answers Enter only, never Space when Space
+     is a global shortcut.
+  3. Test both from a running instance with stubbed writes: focus an item, dispatch the key on IT, and call the native
+     forward hook (such as a page-level `escape()` hook), then read the state.
