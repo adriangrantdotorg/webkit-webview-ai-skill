@@ -823,7 +823,7 @@ and read the active section back.
 
 **Trigger:** a test replaces `window.webkit.messageHandlers.<name>.postMessage` to catch a side-effecting call (clipboard, Finder, a native menu) before it reaches native.
 **Discrimination:** the page posts `JSON.stringify({ id, type, ...params })`, a STRING. A stub that tests `m.type` sees `undefined`, matches nothing, forwards everything, and the real side effect happens: a Copy-button test can overwrite the real clipboard that way.
-**Action:** `const m = JSON.parse(raw)` first; for the stubbed type, record it and RETURN (never call the original). To fake a native reply to a `call()`, answer through the receive hook: `window.<yourRecvHook>({ id: m.id, ok: true, data: { … } })` (e.g. the item a native context menu would return).
+**Action:** `const m = JSON.parse(raw)` first; for the stubbed type, record it and RETURN (never call the original). To fake a native reply to a `call()`, answer through the receive hook: `window.__bridgeRecv({ id: m.id, ok: true, data: { … } })` (e.g. the item a native context menu would return).
 
 ## 56. Spelling squiggles live on the TEXT NODE, and `spellcheck="false"` is read per line
 
@@ -834,16 +834,16 @@ a checked line it does not, because WebKit checks the paragraph the selection le
 **Action:** marks are attached to the text node, so give that text a NEW element: a framework that re-parents the same
 text node into a different element (CodeMirror after a mark's `tagName` changes) clears them; a text node replaced
 behind the framework's back also clears them but breaks the framework's view (never do that). Verify with
-a snapshot of the page's pixels (`WKWebView.takeSnapshot`), not the DOM: markers are not in the DOM.
+a snapshot of the page's pixels, not the DOM: markers are not in the DOM.
 
 ## 57. Escape key dismissal for WKWebView modals / lightboxes requires both a capture-phase `window` listener and an AppKit `keyCode == 53` bridge, plus `.blur()` on the trigger when closing
 
-- **Trigger:** a modal or lightbox opened by clicking an element inside a `WKWebView` fails to close on `Escape` when the web view is not the window's `firstResponder` (or when a focused child swallows bubble-phase key events), or closing the modal leaves the trigger element looking slightly washed out / altered (`:focus-visible`).
+- **Trigger:** a modal or lightbox (`#art-lightbox`) opened by clicking an element inside a `WKWebView` fails to close on `Escape` when the web view is not the window's `firstResponder` (or when a focused child swallows bubble-phase key events), or closing the modal leaves the trigger element looking slightly washed out / altered (`:focus-visible`).
 - **Discrimination:** a bubble-phase `document.addEventListener("keydown")` only fires when `WKWebView` is `firstResponder` and no inner handler stops propagation. Furthermore, calling `trigger.focus()` on close activates `.linked:focus-visible { filter: brightness(1.06) }` in WebKit even after a mouse click, leaving a CSS filter raster buffer stuck on the trigger element.
 - **Action:**
   1. **Capture-phase `window` listener in JS:** attach `window.addEventListener("keydown", (e) => { if (isOpen() && (e.key === "Escape" || e.key === "Esc" || e.keyCode === 27)) { e.preventDefault(); e.stopPropagation(); close(); } }, true)` and focus the dialog container (`tabindex="-1"`) on open.
-  2. **AppKit `NSEvent` local monitor fallback:** in `NSEvent.addLocalMonitorForEvents(matching: .keyDown)`, when `e.keyCode == 53` (`Escape`) in a window hosting the web view and `win.firstResponder !== wc.web.webView`, restore `win.makeFirstResponder(wc.web.webView)` and invoke the JS `escape()` handler directly (`wc.web.call("escape")`).
-  3. **Blur the trigger on close:** call `trigger.blur()` instead of `trigger.focus()` when closing a click-triggered lightbox so `:focus-visible` filters never stick to the trigger.
+  2. **AppKit `NSEvent` local monitor fallback:** in `NSEvent.addLocalMonitorForEvents(matching: .keyDown)`, when `e.keyCode == 53` (`Escape`) in a web-view window and `win.firstResponder !== wc.web.webView`, restore `win.makeFirstResponder(wc.web.webView)` and invoke the JS `escape()` handler directly (`wc.web.call("escape")`).
+  3. **Blur the trigger on close:** call `trigger.blur()` instead of `trigger.focus()` when closing a click-triggered lightbox so `:focus-visible` filters never stick to the artwork.
 
 ## 58. A HIDDEN window holds every CSS animation at 0, and synthetic pointer events can't be captured
 
@@ -907,7 +907,7 @@ the user's own action bumps (a job started before the user acted gives up).
 ## 62. Headless probe hygiene for a browser-mock build under real WebKit
 
 *Trigger:* writing or extending a Swift probe that drives the mock app in an off-screen WKWebView. *Discrimination:*
-each item below has cost a failed run; most failures were the probe, not the app, so read these before
+each item below is a common cause of a failed run; most failures are the probe, not the app, so read these before
 blaming the code. *Action:*
 - Steps as `web.callAsyncJavaScript(body, in: .page)` so a step can `await`; wrap each body in
   `try { … } catch (e) { return 'threw: ' + e.message }` so an exception names itself instead of "A JavaScript
@@ -919,7 +919,7 @@ blaming the code. *Action:*
 - In a Swift `"""` string a JS regex escape needs two backslashes (`/\\s+/`, `/\\?/`); one is a Swift compile error
   that also shows as "cannot convert String to (String, String)" on the step array.
 - A bare key in a Gmail-style keymap waits the sequence beat (~350 ms) before it runs: sleep past it.
-- Record which binding a key ran (e.g. `window.__lastAction` in the dispatcher) before suspecting the handler.
+- Record which binding a key ran (`window.__lastAction` in the dispatcher) before suspecting the handler.
 - Close what earlier steps opened (Settings ate a probe's `n` as typing in its search box), and check the fixture's
   facts (a template WITH a fill-in rightly took the cursor the step expected on another line).
 - Write the composer's state through its editor (`.ProseMirror`'s `.editor`), not synthetic `beforeinput` events,
@@ -928,7 +928,7 @@ blaming the code. *Action:*
 ## 63. Key handlers key off STATE, never `e.target`; element handlers skip keys the app already handled
 
 - **Trigger:** a key works "only sometimes" (Esc leaves a filter on some presses and not others), or one key press does
-  two things (Space played / paused AND toggled the list item that had focus).
+  two things (Space played / paused AND toggled the seat that had focus).
 - **Discrimination:** two separate causes, both measured. (1) The Escape branch tested `e.target.id === "pagefilter-input"`:
   after a click focused something else, or when the native shell's key monitor forwarded Esc through a page hook that
   calls the handler with `new KeyboardEvent("keydown", { key: "Escape" })` WITHOUT dispatching it (`e.target` is null),
@@ -941,13 +941,13 @@ blaming the code. *Action:*
   2. Element handlers return early on `e.defaultPrevented`, and a list item answers Enter only, never Space when Space
      is a global shortcut.
   3. Test both from a running instance with stubbed writes: focus an item, dispatch the key on IT, and call the native
-     forward hook (the page function the shell calls on Esc), then read the state.
+     forward hook (e.g. `__app.escape()`), then read the state.
 
 ## 64. What makes the WebKit graphics process ("<App> Graphics and Media") busy, and how to measure it
 
 - **Trigger:** Activity Monitor shows "<App> Graphics and Media" (`com.apple.WebKit.GPU`) high while the app sits idle,
   the Mac runs hot or freezes, or you add any looping effect to a WKWebView page.
-- **Discrimination:** measured on a large window (3840 x 2560 at 50 Hz), app idle:
+- **Discrimination:** measured on a large 5K window with the app idle:
   - Anything that REPAINTS every frame costs about the whole window, whatever the element's size: six small cards
     breathing via `box-shadow` 54%, a conic border turned through `@property --angle` 26%.
   - Moving HUGE layers is just as costly even with `transform` only: four 60vw blurred aurora blobs drifting by
@@ -964,7 +964,48 @@ blaming the code. *Action:*
      `ctypes.CDLL("/usr/lib/libSystem.B.dylib").responsibility_get_pid_responsible_for_pid(pid)` == the app's pid;
      sample with `top -l 4 -s 3 -pid … -stats pid,cpu` and drop the first sample.
   2. Find the culprit by switching ONE effect off at a time through an injected `<style>` (`display: none`, then
-     `animation: none`), 10 s per state, then put it back. Alternate A/B samples: background work in the app or user
+     `animation: none`), 10 s per state, then put it back. Alternate A/B samples: background activity or the user's own
      clicks swing the baseline by 5-10 points between runs.
-  3. Fix with cheap motion (transform / opacity on small layers, a small canvas at low fps instead of huge moving layers), and pause everything while unseen (the shell reports
-    `NSWindow.didChangeOcclusionStateNotification` to the page).
+  3. Fix by moving loops to small `transform` / `opacity` layers or a tiny low-fps canvas, and pause everything while unseen (the shell reports
+     `NSWindow.didChangeOcclusionStateNotification` to the page).
+
+## 65. A bar pinned with `position: sticky; bottom` inside a PADDED scroller
+
+*Trigger:* you dock a bar (actions, a footer) to the bottom of a scrolling pane with `position: sticky; bottom: …`, and
+the scroller has bottom padding (`.edx-prefs-body { padding: 4px 34px 34px }`). *Discrimination:* negative offsets
+and margins (`bottom: -34px; margin-bottom: -34px`) to cancel the padding left the bar 8–9 px above the pane's edge in
+real WebKit, and the gap looks like a layout bug. *Action:* while the bar is there the scroller drops its bottom padding
+(`.edx-prefs-body:has(.edx-tpl-dock) { padding-bottom: 0 }`, WebKit supports `:has`), the bar sticks at `bottom: 0`,
+bleeds sideways with `margin: 0 -<side padding>`, and gets a `z-index` over cards that animate (`transform` makes them
+stacking contexts). Prove it with the pane made short (`max-height: 420px` on the scroller) so the form really scrolls:
+the bar's bottom equals the scroller's bottom at `scrollTop = 0` AND at the end. A pane that happens to fit proves
+nothing.
+
+## 66. An off-screen probe's ENTRANCE animation never ends: freeze animations before measuring geometry
+
+*Trigger:* a probe compares two boxes (`getBoundingClientRect`) inside a panel that opens with a transform animation
+(`translateY(14px) scale(0.99)` → none). *Discrimination:* the same family as item 58: an off-screen page holds the
+animation at its first frame, so the panel stays scaled; `clientHeight` (885) disagreed with the rect's height (876)
+and every comparison was off by about 1%. It read as a real 9 px gap. *Action:* before measuring, inject
+`*,*::before,*::after{animation:none!important;transition:none!important}` (the same style the snapshot helpers use),
+wait a beat, then measure. When `clientHeight` and the rect height differ, a transform is in play: freeze first.
+
+## 67. A native TEXT drag inside the page reaches Tauri's drag-drop layer as a file drag with NO paths
+
+*Trigger:* a "drop files here" zone driven by `getCurrentWebview().onDragDropEvent`, on a page with selectable text or
+chips. *Discrimination:* pressing on selected text (an address chip) and moving started WebKit's own text drag; Tauri
+reported it as `enter` / `over` with `paths: []`, and a zone lit on any `enter` said "Drop to Attach" for a chip
+being moved between fields. *Action:* (1) the zone wakes only when `enter` carried `paths.length > 0` (remember it for
+the `over` events that follow); (2) in-page drags are pointer events end to end (`preventDefault` on the element's
+`mousedown`, window `mousemove` / `mouseup`, a ghost with `pointer-events: none`, `elementFromPoint` for the target),
+plus `-webkit-user-drag: none` and `onDragStart = preventDefault` on the element.
+
+## 68. Two capture listeners on `window`: the one ADDED FIRST runs first, and only `stopImmediatePropagation` stops the other
+
+*Trigger:* a small surface that must own Esc / Enter / ↑↓ while it is open (a type-ahead list, an emoji picker)
+in an app whose keymap already listens on `window` in the capture phase. *Discrimination:* `stopPropagation()` in a
+window capture listener does NOT stop another listener on the same window target; the keymap still ran and Esc
+closed the composer under the list. Adding the surface's listener AFTER the keymap's makes it run second, too late.
+*Action:* install the surface's listener BEFORE the keymap installs its own, and call `preventDefault()` +
+`stopImmediatePropagation()` for the keys it handles. A listener that can only be added later (a drag that starts
+mid-session) cannot win this way: route its Esc through the app's own escape hook instead.
