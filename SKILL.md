@@ -1038,7 +1038,7 @@ mid-session) cannot win this way: route its Esc through the app's own escape hoo
 
 - **Trigger:** native code sends a key chord into a web page to drive the site (a mode toggle, a shortcut) with
   `NSEvent.keyEvent` + `window.sendEvent`, or you need one web view dark and another light.
-- **Discrimination:** two silent failures, both seen in the logs of a tabbed web-wrapper app. (1) A HIDDEN `WKWebView` (a background
+- **Discrimination:** two silent failures, both measured in a real app's logs. (1) A HIDDEN `WKWebView` (a background
   tab) refuses first responder, so the event goes to whatever view already has focus: the visible tab got two toggles
   and the background tab none. (2) When the page does not consume the key (still loading, a modal's input focused),
   WebKit hands the unhandled event back up the responder chain to the main menu's key equivalents: an app menu item on
@@ -1049,3 +1049,15 @@ mid-session) cannot win this way: route its Esc through the app's own escape hoo
   leave the page), and send a native event only to the visible web view of the key window. Any app menu item that
   shares the chord checks the same "my own keystroke, last 1 s" flag as the key monitor.
 
+## 71. An off-screen probe page is never "being looked at": `document.hasFocus()` is false and `visibilityState` is "hidden"
+
+- **Trigger:** a feature waits until the user can SEE it (a toast held while the app is behind, a "came back" notice
+  shown on focus, a poll paused while hidden) and you test it in a headless `WKWebView` that is never ordered in.
+- **Discrimination:** the feature is right and the probe is not: an unshown window never has focus and its document
+  reports `visibilityState === "hidden"`, so the feature waits forever and the step times out ("no toast"). Faking only
+  `hasFocus` is not enough when the gate also reads visibility (measured: a "welcome back" toast stayed held until
+  both were faked).
+- **Action:** in the probe, before triggering the feature: `document.hasFocus = () => true;
+  Object.defineProperty(document, "visibilityState", { get: () => "visible" });`. Keep the real gate in the app (both
+  checks, plus a `focus` / `visibilitychange` listener that runs what was held), and say in the probe's comment that the
+  look is faked.
