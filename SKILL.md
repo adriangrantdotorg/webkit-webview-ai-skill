@@ -1038,7 +1038,7 @@ mid-session) cannot win this way: route its Esc through the app's own escape hoo
 
 - **Trigger:** native code sends a key chord into a web page to drive the site (a mode toggle, a shortcut) with
   `NSEvent.keyEvent` + `window.sendEvent`, or you need one web view dark and another light.
-- **Discrimination:** two silent failures, both measured in a web-wrapper app's logs. (1) A HIDDEN `WKWebView` (a background
+- **Discrimination:** two silent failures, both measured in a multi-tab wrapper app's logs. (1) A HIDDEN `WKWebView` (a background
   tab) refuses first responder, so the event goes to whatever view already has focus: the visible tab got two toggles
   and the background tab none. (2) When the page does not consume the key (still loading, a modal's input focused),
   WebKit hands the unhandled event back up the responder chain to the main menu's key equivalents: an app menu item on
@@ -1055,7 +1055,7 @@ mid-session) cannot win this way: route its Esc through the app's own escape hoo
   shown on focus, a poll paused while hidden) and you test it in a headless `WKWebView` that is never ordered in.
 - **Discrimination:** the feature is right and the probe is not: an unshown window never has focus and its document
   reports `visibilityState === "hidden"`, so the feature waits forever and the step times out ("no toast"). Faking only
-  `hasFocus` is not enough when the gate also reads visibility (measured: a "welcome back" toast stayed held until
+  `hasFocus` is not enough when the gate also reads visibility (measured: a "came back" toast stayed held until
   both were faked).
 - **Action:** in the probe, before triggering the feature: `document.hasFocus = () => true;
   Object.defineProperty(document, "visibilityState", { get: () => "visible" });`. Keep the real gate in the app (both
@@ -1075,3 +1075,28 @@ mid-session) cannot win this way: route its Esc through the app's own escape hoo
   also fails, because the first terminate is still pending. `terminate` from a menu action or a run-loop timer is fine.
 - **Action:** quit through the run loop, not GCD: `NSApp.perform(#selector(NSApplication.terminate(_:)), with: nil,
   afterDelay: 0.4)` (or straight from the menu action). Never wrap it in `DispatchQueue.main.async`/`asyncAfter`.
+
+## 73. A WKWebView app that runs tools (git, CLIs) from page messages freezes under a burst
+
+- **Trigger:** a `WKScriptMessageHandler` (or anything a page message reaches) runs `Process` work: a `Shell.run`-style
+  helper, git status / branch reads, a CLI. Above all when the helper reads stdout with
+  `DispatchQueue.global().async { readDataToEndOfFile() }` and then waits (`group.wait()`, a semaphore), or calls
+  `waitUntilExit()`.
+- **Discrimination:** the app beachballs or ignores URL hooks (`open -g "<scheme>://…"` fails with -1712) after many
+  windows ask at once (a store change reloading every window, a test guard opening windows). Two mechanisms, both seen:
+  (1) on the MAIN thread, `waitUntilExit` spins the run loop, so WebKit delivers the next page message INSIDE the wait,
+  which starts another tool inside the first; (2) even off main, the waits starve the SHARED pool: 80 page calls each
+  hold a pool thread waiting for an output read queued on that same pool, every thread is taken, no read ever starts
+  (`sample <pid>`: 100+ threads in your shell helper under `__ulock_wait`, main thread idle). Moving calls off main
+  fixes (1) only; an app fixed that way still freezes under the next burst. Process exit itself is fine
+  (`terminationHandler` is delivered on its own queue even with the pool full, measured).
+- **Action:**
+  - Read a tool's pipes on a `Thread` of its own (`Thread { data = h.readDataToEndOfFile(); done.signal() }.start()`),
+    never `DispatchQueue.global()`.
+  - Wait for exit with a semaphore set in `terminationHandler` BEFORE `run()`; never `waitUntilExit`.
+  - Run page-message work on a bounded `OperationQueue` (e.g. 8), so a burst queues instead of taking every thread.
+  - A parallel runner that waits on its items uses its own worker threads, never blocks queued on the pool.
+  - Guards: a test that fills the pool (300 blocks on a semaphore) and then runs the helper from a `Thread` (must
+    finish within seconds; it hangs on the old code); a test that schedules a main-run-loop `Timer` and checks it did
+    NOT fire during a tool run on main; and a live probe that posts 80 page messages during a store change and needs a
+    URL-hook answer within 2 s.
