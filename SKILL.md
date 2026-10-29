@@ -1038,7 +1038,7 @@ mid-session) cannot win this way: route its Esc through the app's own escape hoo
 
 - **Trigger:** native code sends a key chord into a web page to drive the site (a mode toggle, a shortcut) with
   `NSEvent.keyEvent` + `window.sendEvent`, or you need one web view dark and another light.
-- **Discrimination:** two silent failures, both measured in a real app's logs. (1) A HIDDEN `WKWebView` (a background
+- **Discrimination:** two silent failures, both measured in a web-wrapper app's logs. (1) A HIDDEN `WKWebView` (a background
   tab) refuses first responder, so the event goes to whatever view already has focus: the visible tab got two toggles
   and the background tab none. (2) When the page does not consume the key (still loading, a modal's input focused),
   WebKit hands the unhandled event back up the responder chain to the main menu's key equivalents: an app menu item on
@@ -1061,3 +1061,17 @@ mid-session) cannot win this way: route its Esc through the app's own escape hoo
   Object.defineProperty(document, "visibilityState", { get: () => "visible" });`. Keep the real gate in the app (both
   checks, plus a `focus` / `visibilitychange` listener that runs what was held), and say in the probe's comment that the
   look is faked.
+
+## 72. `NSApp.terminate` called inside a `DispatchQueue.main` block hangs an app whose quit waits for its pages
+
+- **Trigger:** code quits the app itself (a "switch to another copy" action, an updater, a "Restart" item) with
+  `DispatchQueue.main.async { NSApp.terminate(nil) }` or `asyncAfter`, in an app whose `applicationShouldTerminate`
+  answers `.terminateLater` and replies after each `WKWebView` flushes (a `callAsyncJavaScript` save, a
+  `DispatchGroup.notify(queue: .main)`, an `asyncAfter` fallback timer).
+- **Discrimination:** the app never quits and never beachballs: it keeps answering Apple events (URL hooks) while every
+  main-queue block, the flush fallback timer included, stays stuck. `sample <pid> 1` shows `-[NSApplication terminate:]`
+  under `_dispatch_main_queue_drain`: the modal wait for the terminate reply runs INSIDE the main-queue block, and a
+  serial main queue cannot start the blocks that would send the reply. A later normal quit (Dock, menu, a quit tool)
+  also fails, because the first terminate is still pending. `terminate` from a menu action or a run-loop timer is fine.
+- **Action:** quit through the run loop, not GCD: `NSApp.perform(#selector(NSApplication.terminate(_:)), with: nil,
+  afterDelay: 0.4)` (or straight from the menu action). Never wrap it in `DispatchQueue.main.async`/`asyncAfter`.
