@@ -1038,7 +1038,7 @@ mid-session) cannot win this way: route its Esc through the app's own escape hoo
 
 - **Trigger:** native code sends a key chord into a web page to drive the site (a mode toggle, a shortcut) with
   `NSEvent.keyEvent` + `window.sendEvent`, or you need one web view dark and another light.
-- **Discrimination:** two silent failures, both measured in a multi-tab wrapper app's logs. (1) A HIDDEN `WKWebView` (a background
+- **Discrimination:** two silent failures, both measured in a multi-tab web-wrapper app's logs. (1) A HIDDEN `WKWebView` (a background
   tab) refuses first responder, so the event goes to whatever view already has focus: the visible tab got two toggles
   and the background tab none. (2) When the page does not consume the key (still loading, a modal's input focused),
   WebKit hands the unhandled event back up the responder chain to the main menu's key equivalents: an app menu item on
@@ -1055,7 +1055,7 @@ mid-session) cannot win this way: route its Esc through the app's own escape hoo
   shown on focus, a poll paused while hidden) and you test it in a headless `WKWebView` that is never ordered in.
 - **Discrimination:** the feature is right and the probe is not: an unshown window never has focus and its document
   reports `visibilityState === "hidden"`, so the feature waits forever and the step times out ("no toast"). Faking only
-  `hasFocus` is not enough when the gate also reads visibility (measured: a "came back" toast stayed held until
+  `hasFocus` is not enough when the gate also reads visibility (measured: a held toast stayed held until
   both were faked).
 - **Action:** in the probe, before triggering the feature: `document.hasFocus = () => true;
   Object.defineProperty(document, "visibilityState", { get: () => "visible" });`. Keep the real gate in the app (both
@@ -1088,7 +1088,7 @@ mid-session) cannot win this way: route its Esc through the app's own escape hoo
   which starts another tool inside the first; (2) even off main, the waits starve the SHARED pool: 80 page calls each
   hold a pool thread waiting for an output read queued on that same pool, every thread is taken, no read ever starts
   (`sample <pid>`: 100+ threads in your shell helper under `__ulock_wait`, main thread idle). Moving calls off main
-  fixes (1) only; an app fixed that way still freezes under the next burst. Process exit itself is fine
+  fixes (1) only; an app fixed that way alone still freezes under the next burst. Process exit itself is fine
   (`terminationHandler` is delivered on its own queue even with the pool full, measured).
 - **Action:**
   - Read a tool's pipes on a `Thread` of its own (`Thread { data = h.readDataToEndOfFile(); done.signal() }.start()`),
@@ -1100,3 +1100,26 @@ mid-session) cannot win this way: route its Esc through the app's own escape hoo
     finish within seconds; it hangs on the old code); a test that schedules a main-run-loop `Timer` and checks it did
     NOT fire during a tool run on main; and a live probe that posts 80 page messages during a store change and needs a
     URL-hook answer within 2 s.
+
+## 74. A headless KEY hook must refuse any window that isn't a test window, inside the APP
+
+- **Trigger:** an app test hook that sends a real key press to "the frontmost window" (a `myapp://key` URL hook, a `sendEvent`
+  helper), used by a test that first checks which document is in front.
+- **Discrimination:** the check and the key are two separate URL commands; the user (or another window) can come to
+  the front in between. For example, the check passes, the user brings a real document forward, and a shortcut meant for a
+  scratch note types text into the user's real document. An eval can guard itself in the same JS
+  run; a key press can't, so the guard has to live where the key is sent.
+- **Action:** the native key hook refuses unless the target window is the layout guard's own window, or its document
+  AND folder are scratch paths (`/tmp`, `/private/tmp`, `/var/folders`, or none), and writes `refused: …` to its
+  `out=` file so the test re-cycles. Guard it with a source test that the check runs before any `NSEvent` is built.
+  If the front window keeps changing during a run, the user is in the app: stop driving it.
+
+## 75. An SVG with `<foreignObject>` taints the canvas it is drawn on
+
+- **Trigger:** turning an on-page SVG (a diagram, a chart) into a PNG via `Image` + `<canvas>` + `toDataURL`.
+- **Discrimination:** WebKit treats an SVG image containing `<foreignObject>` (HTML labels) as cross-origin content,
+  so `toDataURL` throws a SecurityError even though the SVG came from the same page. Page CSS also doesn't travel
+  with a serialized SVG, and page web fonts aren't available inside an `<img>`; system fonts are.
+- **Action:** make the SVG pure SVG before export (for Mermaid: `htmlLabels: false`), put any style it needs inside the SVG itself, then serialize → `data:image/svg+xml` → `img.decode()` →
+  canvas at 2x → PNG. Send the base64 to native for the pasteboard or a save panel (`navigator.clipboard` image
+  writes need a secure context and a user gesture).
