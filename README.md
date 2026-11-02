@@ -34,11 +34,11 @@ Before touching code, the AI matches the symptom to a known WebKit trap, rules o
 
 - 🖱️ **Clicks and keys that just work** — swallowed first clicks, dead shortcuts, stuck Esc, misrouted keys
 - 🔬 **Offscreen WKWebView probe** — real WebKit clicks and keys, no window, no permission prompt
-- 🖼️ **Images, links, frames and drags that behave** — mixed content, Copy Link, iframe reloads, text drags
+- 🖼️ **Images, links, frames and drags that behave** — mixed content, Copy Link, iframe reloads, text drags, SVG-to-PNG exports
 - 🔄 **Settings that reach every window** — per-window stores, pre-warmed windows, untracked SolidJS reads
 - ✍️ **Native spelling and grammar** — squiggles on, the Mac spelling panel, a trimmed right-click menu
 - ✏️ **Inline edits that wait for you** — no surprise commits from synthetic blurs, and ⌘Z that undoes
-- ⚡ **Smooth redraws, no freezes** — no blinking, no creeping sidebars, no hung quits or tool-burst stalls
+- ⚡ **Smooth redraws, no freezes** — no blinking, no creeping sidebars, no hung quits or tool-burst freezes
 
 ---
 
