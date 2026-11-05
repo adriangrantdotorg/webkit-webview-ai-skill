@@ -1044,7 +1044,7 @@ mid-session) cannot win this way: route its Esc through the app's own escape hoo
 
 - **Trigger:** native code sends a key chord into a web page to drive the site (a mode toggle, a shortcut) with
   `NSEvent.keyEvent` + `window.sendEvent`, or you need one web view dark and another light.
-- **Discrimination:** two silent failures, both measured in a site-wrapper app's logs. (1) A HIDDEN `WKWebView` (a background
+- **Discrimination:** two silent failures, both measured in app logs. (1) A HIDDEN `WKWebView` (a background
   tab) refuses first responder, so the event goes to whatever view already has focus: the visible tab got two toggles
   and the background tab none. (2) When the page does not consume the key (still loading, a modal's input focused),
   WebKit hands the unhandled event back up the responder chain to the main menu's key equivalents: an app menu item on
@@ -1061,7 +1061,7 @@ mid-session) cannot win this way: route its Esc through the app's own escape hoo
   shown on focus, a poll paused while hidden) and you test it in a headless `WKWebView` that is never ordered in.
 - **Discrimination:** the feature is right and the probe is not: an unshown window never has focus and its document
   reports `visibilityState === "hidden"`, so the feature waits forever and the step times out ("no toast"). Faking only
-  `hasFocus` is not enough when the gate also reads visibility (measured: a return toast stayed held until
+  `hasFocus` is not enough when the gate also reads visibility (measured: a held toast stayed held until
   both were faked).
 - **Action:** in the probe, before triggering the feature: `document.hasFocus = () => true;
   Object.defineProperty(document, "visibilityState", { get: () => "visible" });`. Keep the real gate in the app (both
@@ -1094,7 +1094,7 @@ mid-session) cannot win this way: route its Esc through the app's own escape hoo
   which starts another tool inside the first; (2) even off main, the waits starve the SHARED pool: 80 page calls each
   hold a pool thread waiting for an output read queued on that same pool, every thread is taken, no read ever starts
   (`sample <pid>`: 100+ threads in your shell helper under `__ulock_wait`, main thread idle). Moving calls off main
-  fixes (1) only. Process exit itself is fine
+  fixes (1) only; the app still freezes under the next burst. Process exit itself is fine
   (`terminationHandler` is delivered on its own queue even with the pool full, measured).
 - **Action:**
   - Read a tool's pipes on a `Thread` of its own (`Thread { data = h.readDataToEndOfFile(); done.signal() }.start()`),
@@ -1109,11 +1109,11 @@ mid-session) cannot win this way: route its Esc through the app's own escape hoo
 
 ## 74. A headless KEY hook must refuse any window that isn't a test window, inside the APP
 
-- **Trigger:** an app test hook that sends a real key press to "the frontmost window" (`<scheme>://key`, a `sendEvent`
+- **Trigger:** an app test hook that sends a real key press to "the frontmost window" (a `<scheme>://key` URL, a `sendEvent`
   helper), used by a test that first checks which document is in front.
 - **Discrimination:** the check and the key are two separate URL commands; the user (or another window) can come to
-  the front in between. For example: the check passes, the user brings a real document forward, and a key chord meant for a
-  scratch note types text into that real document. An eval can guard itself in the same JS
+  the front in between. The check can pass, the user then brings a real document forward, and a key chord meant for a
+  scratch note types into that real document instead. An eval can guard itself in the same JS
   run; a key press can't, so the guard has to live where the key is sent.
 - **Action:** the native key hook refuses unless the target window is the layout guard's own window, or its document
   AND folder are scratch paths (`/tmp`, `/private/tmp`, `/var/folders`, or none), and writes `refused: …` to its
@@ -1129,3 +1129,16 @@ mid-session) cannot win this way: route its Esc through the app's own escape hoo
 - **Action:** make the SVG pure SVG before export (for Mermaid: `htmlLabels: false`), put any style it needs inside the SVG itself, then serialize → `data:image/svg+xml` → `img.decode()` →
   canvas at 2x → PNG. Send the base64 to native for the pasteboard or a save panel (`navigator.clipboard` image
   writes need a secure context and a user gesture).
+
+## 76. `overflow: hidden` on text containers clips `text-shadow` into a rectangular box artifact
+
+- **Trigger:** applying `text-shadow` (for glowing letterforms, laser phosphor, or neon text) to text inside a WebKit view, where the text element or its container has `overflow: hidden` with tight line-height.
+- **Discrimination:** WebKit clips the soft feathered blur of `text-shadow` at the element's layout bounding box. Instead of an organic phosphor halo around the glyphs, a visible rectangular glow / highlighter box artifact appears around the line of text.
+- **Action:** set `overflow: visible;` on the text element and provide adequate vertical padding (e.g. `padding: 4px 0`) and line-height so the text shadow radiates naturally without hitting bounding box boundaries. If ellipsis truncation is needed, clip on an outer wrapping container that pads beyond the shadow blur radius, never on the immediate text-shadow element.
+
+## 77. `clip-path` clips standard `box-shadow`; use `filter: drop-shadow()` for 3D elevation over dark backdrops
+
+- **Trigger:** creating floating, elevated, or 3D cards with angled chamfers or non-rectangular polygon silhouettes via `clip-path`.
+- **Discrimination:** standard CSS `box-shadow` is sliced away by `clip-path` (it is computed on the layout box before the clip, rendering either cut-off or invisible outside the polygon).
+- **Action:** apply `filter: drop-shadow(dx dy blur color)` to the clipped element. WebKit computes `filter: drop-shadow()` on the post-clip alpha mask, correctly casting depth and ambient colored glow around the chamfered geometric edges into space.
+
