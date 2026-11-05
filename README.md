@@ -17,7 +17,7 @@
 
 | | 😩 Without this Skill | 😌 With this Skill |
 | --- | :---: | :---: |
-| 🐞 Known WebKit traps | what the AI half-remembers | **75+, each with its fix** |
+| 🐞 Known WebKit traps | what the AI half-remembers | **80+, each with its fix** |
 | 🔁 Tries until it works | 🧪 3–5 | **1** |
 | ✅ Where a fix is verified | Chrome mock (can't fail) | **real WebKit** |
 | 🔐 Windows or permission prompts while testing | 🧪 several | **0** |
@@ -32,12 +32,12 @@ Before touching code, the AI matches the symptom to a known WebKit trap, rules o
 
 ![The same bug report with and without the skill: without it, four tries; with it, one try and time to spare](docs/media/with-vs-without-skill.svg)
 
-- 🖱️ **Clicks and keys that just work** — swallowed first clicks, dead shortcuts, stuck Esc, misrouted keys
+- 🖱️ **Clicks, keys and edits that just work** — swallowed first clicks, dead shortcuts, stuck Esc, surprise commits on blur
 - 🔬 **Offscreen WKWebView probe** — real WebKit clicks and keys, no window, no permission prompt
 - 🖼️ **Images, links, frames and drags that behave** — mixed content, Copy Link, iframe reloads, text drags, SVG-to-PNG exports
 - 🔄 **Settings that reach every window** — per-window stores, pre-warmed windows, untracked SolidJS reads
-- ✍️ **Native spelling and grammar** — squiggles on, the Mac spelling panel, a trimmed right-click menu
-- ✏️ **Inline edits that wait for you** — no surprise commits from synthetic blurs, and ⌘Z that undoes
+- ✍️ **Native spelling and right-click menus** — squiggles, the Mac spelling panel, themed menus even over sandboxed frames
+- 🎨 **Shadows and 3D text that render right** — no boxed `text-shadow`, elevation that survives `clip-path`
 - ⚡ **Smooth redraws, no freezes** — no blinking, no creeping sidebars, no hung quits or tool-burst freezes
 
 ---
