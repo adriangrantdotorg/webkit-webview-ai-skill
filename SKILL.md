@@ -1044,7 +1044,7 @@ mid-session) cannot win this way: route its Esc through the app's own escape hoo
 
 - **Trigger:** native code sends a key chord into a web page to drive the site (a mode toggle, a shortcut) with
   `NSEvent.keyEvent` + `window.sendEvent`, or you need one web view dark and another light.
-- **Discrimination:** two silent failures, both measured in app logs. (1) A HIDDEN `WKWebView` (a background
+- **Discrimination:** two silent failures, both measured in a tabbed web-wrapper app's logs. (1) A HIDDEN `WKWebView` (a background
   tab) refuses first responder, so the event goes to whatever view already has focus: the visible tab got two toggles
   and the background tab none. (2) When the page does not consume the key (still loading, a modal's input focused),
   WebKit hands the unhandled event back up the responder chain to the main menu's key equivalents: an app menu item on
@@ -1061,7 +1061,7 @@ mid-session) cannot win this way: route its Esc through the app's own escape hoo
   shown on focus, a poll paused while hidden) and you test it in a headless `WKWebView` that is never ordered in.
 - **Discrimination:** the feature is right and the probe is not: an unshown window never has focus and its document
   reports `visibilityState === "hidden"`, so the feature waits forever and the step times out ("no toast"). Faking only
-  `hasFocus` is not enough when the gate also reads visibility (measured: a held toast stayed held until
+  `hasFocus` is not enough when the gate also reads visibility (measured: a "came back" toast stayed held until
   both were faked).
 - **Action:** in the probe, before triggering the feature: `document.hasFocus = () => true;
   Object.defineProperty(document, "visibilityState", { get: () => "visible" });`. Keep the real gate in the app (both
@@ -1094,7 +1094,7 @@ mid-session) cannot win this way: route its Esc through the app's own escape hoo
   which starts another tool inside the first; (2) even off main, the waits starve the SHARED pool: 80 page calls each
   hold a pool thread waiting for an output read queued on that same pool, every thread is taken, no read ever starts
   (`sample <pid>`: 100+ threads in your shell helper under `__ulock_wait`, main thread idle). Moving calls off main
-  fixes (1) only; the app still freezes under the next burst. Process exit itself is fine
+  fixes (1) only. Process exit itself is fine
   (`terminationHandler` is delivered on its own queue even with the pool full, measured).
 - **Action:**
   - Read a tool's pipes on a `Thread` of its own (`Thread { data = h.readDataToEndOfFile(); done.signal() }.start()`),
@@ -1112,8 +1112,8 @@ mid-session) cannot win this way: route its Esc through the app's own escape hoo
 - **Trigger:** an app test hook that sends a real key press to "the frontmost window" (a `<scheme>://key` URL, a `sendEvent`
   helper), used by a test that first checks which document is in front.
 - **Discrimination:** the check and the key are two separate URL commands; the user (or another window) can come to
-  the front in between. The check can pass, the user then brings a real document forward, and a key chord meant for a
-  scratch note types into that real document instead. An eval can guard itself in the same JS
+  the front in between. For example, the check passes, the user brings a real document forward, and a key chord meant for a
+  scratch note types into the top of that real document. An eval can guard itself in the same JS
   run; a key press can't, so the guard has to live where the key is sent.
 - **Action:** the native key hook refuses unless the target window is the layout guard's own window, or its document
   AND folder are scratch paths (`/tmp`, `/private/tmp`, `/var/folders`, or none), and writes `refused: …` to its
@@ -1142,3 +1142,23 @@ mid-session) cannot win this way: route its Esc through the app's own escape hoo
 - **Discrimination:** standard CSS `box-shadow` is sliced away by `clip-path` (it is computed on the layout box before the clip, rendering either cut-off or invisible outside the polygon).
 - **Action:** apply `filter: drop-shadow(dx dy blur color)` to the clipped element. WebKit computes `filter: drop-shadow()` on the post-clip alpha mask, correctly casting depth and ambient colored glow around the chamfered geometric edges into space.
 
+## 78. A themed right-click menu over a scriptless sandboxed frame: catch the click in AppKit, behind a zone the page reports
+
+- **Trigger:** you want the app's own context menu (themed, app-specific items) when the user right-clicks inside an email or other untrusted HTML that is rendered in a `sandbox` iframe WITHOUT `allow-scripts`.
+- **Discrimination:** WebKit delivers no events from such a frame to listeners in the parent page, so a parent `contextmenu` listener never fires there and WebKit's own grey menu opens (Chromium does deliver them, so a browser test passes). Emptying WebKit's menu in `willOpenMenu:withEvent:` is not a safe substitute: whether AppKit still flashes an empty menu is not guaranteed. A parent-DOM right-click (a header, a plain-text body) is the easy case: `contextmenu` + `preventDefault`.
+- **Action:**
+  1. The page reports a **zone**: the parent can read `iframe.matches(":hover")` even when it gets no events (see the `:hover` polling entries); push `set_context_zone(true/false)` to the native side on CHANGE only.
+  2. Swizzle `rightMouseDown:` (and `mouseDown:` with the Control flag) on the web view's own class (`object_getClass(webview)`, `class_replaceMethod`, keep the previous or inherited IMP as the fallback). Inside a zone, do NOT call the original: the event never reaches WebKit, so its menu never opens. Emit the point to that window instead: `locationInWindow` → `convertPoint:fromView:nil`, flip with `isFlipped`, and send the view's width so the page can undo its page zoom (`viewWidth / innerWidth`).
+  3. The page turns the point into a target: `document.elementFromPoint` → the frame → `frame.contentDocument.elementFromPoint(x - rect.left, y - rect.top)` (same-origin, `allow-same-origin`), then `closest("a")`, `closest("img")` and the frame's `getSelection()`.
+  4. Outside a zone everything goes to WebKit untouched, so editable fields keep the native menu (spelling suggestions, Paste).
+  5. A native "Look Up" survives as `showDefinitionForAttributedString:atPoint:` on the web view.
+- **Verify:** a headless probe can't produce a real right-click; open the menu through a test hook at a page point, and say that the native catch itself needs one real right-click in the installed app.
+
+## 79. Probing a popup menu off-screen: four traps that look like app bugs
+
+- **Trigger:** an off-screen WKWebView probe opens a context menu or popover and checks its items or what sits on top of it.
+- **Discrimination / Action:**
+  1. **Saved preferences survive between probe runs** (the page's storage belongs to the file origin, not the staging folder). A step that removes a menu item makes the NEXT run start without it. Restore the state the probe needs first (re-add every hidden item), then change it.
+  2. **A menu that closes on scroll closes on the probe's own `scrollIntoView`**: the scroll event arrives a frame later. Scroll, wait about 0.4 s, then open.
+  3. **`elementFromPoint` returns null for a point outside the viewport**, so a right-click handler that re-finds its target from the point misses anything below the fold. Use the event's own `target` for page-DOM clicks; keep the point lookup only for the native path, whose point is always on screen.
+  4. **A launch overlay that never finishes off-screen** (an entrance animation, see entry 66) sits on top of everything, and `elementFromPoint` returns it. Remove it in the probe before any "is it on top" check; it is not app UI.
