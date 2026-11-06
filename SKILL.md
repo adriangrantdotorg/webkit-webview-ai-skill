@@ -300,15 +300,15 @@ class and the style afterwards so the live page is untouched.
 ## 16. `Cross-Origin-Resource-Policy: same-origin` kills a cross-origin `<img>` — fetch remote images from the APP PROCESS, never the webview
 
 **Trigger:** "remote images are enabled but not showing" where the image is `https://`, `curl -I <url>` answers 200 `image/png`, and the CSP `img-src` already allows `https:` — so section 9 (mixed content) is ruled out. Run
-`curl -sI <url> | grep -i cross-origin-resource-policy`: `same-origin` (some sites send it on EVERY asset, so even a sign-in email's logo draws a "?" box) means WebKit refuses the no-cors `<img>` load from any other origin, silently, `complete=true` with `naturalWidth=0`. A Referer-keyed hotlink rule (403 only with a foreign Referer) is the sibling case with the same fix.
+`curl -sI <url> | grep -i cross-origin-resource-policy`: `same-origin` (some large sites send it on every asset, so their emails draw a "?" box in a mail client) means WebKit refuses the no-cors `<img>` load from any other origin, silently, `complete=true` with `naturalWidth=0`. A Referer-keyed hotlink rule (403 only with a foreign Referer) is the sibling case with the same fix.
 **Discrimination:** section 9 is `http://` only and shows as a broken glyph the same way — check the scheme first. A CORS error in the console is NOT this (CORP blocks silently, no console line in WebKit). A `curl` 200 proves the SERVER serves it, never that the webview may load it — prove the block with the offscreen probe (section 4): `loadHTMLString` a page with the suspect `<img>` and a known-good control (`https://www.google.com/s2/favicons?domain=apple.com&sz=64`) side by side, read both `naturalWidth`s after 6 s; suspect 0 + control 64 = CORP/hotlink, both 0 = network/machine.
 **Action:** don't touch the sanitizer or widen the CSP — register a custom scheme (`app-img://localhost/?u=<encodeURIComponent(url)>`, Tauri `register_asynchronous_uri_scheme_protocol`) whose handler fetches the URL from the app process on a worker thread (reqwest: http/https only, ~20 s timeout, size cap, a mainstream browser UA — some CDNs challenge library UAs — no cookies, no Referer), answers 200 with the upstream `content-type` + `cache-control: max-age=3600` + `access-control-allow-origin: *`, and an UNCACHED 404 on any failure so a reopen retries; add the scheme to `img-src`; point every activated `<img>` at it in the app only (the browser mock has no handler — keep the direct URL there). Gmail web, Spark and Mail.app all proxy for exactly this reason, so any email client's "load remote images" must. Keep an `#[ignore]` network unit test that fetches the exact asset that broke, and run it with `-- --ignored` before shipping.
 
 ## 17. No EVENT crosses a scriptless sandboxed iframe — but `:hover` STATE does. Read it, don't listen
 
 **Trigger:** a feature needs to know what the pointer is on INSIDE a `sandbox="allow-same-origin"` frame with no `allow-scripts` (a hovered link's URL, a hovered image, "is the pointer over the quote?"), and the obvious move is `frameDoc.addEventListener("mouseover", …)` from the parent. That listener fires in Chromium (the browser mock goes green) and NEVER in WKWebView (section 6) — the parent also gets no `mousemove` while the pointer is over the frame, so there is no event path at all.
-**Discrimination:** rendering state is not an event. The engine maintains `:hover` on the frame's elements with or without scripts, and the hover chain climbs into the OWNER `<iframe>` element in the parent document — so `frame.matches(":hover")` and `frame.contentDocument.querySelectorAll("a[href]:hover")` are plain same-origin DOM reads that work in both engines. A `title` attribute is the other event-free option (a native tooltip via default UI) but arrives after ~1 s in system styling, and a `title` on the IFRAME itself surfaces as a stray tooltip over the whole body (the frame's title text shows as a tooltip) — use `aria-label` for the frame's accessible name.
-**Action:** a module-level poll (≈80 ms, started when a frame mounts, stopped when none is left) checks `frame.matches(":hover")` per frame and queries the hovered anchor only inside a hovered one; publish the target AND its box (`anchor.getBoundingClientRect()` + the frame's rect — a body scaled with a CSS transform already reports transformed rects; the frame never scrolls internally) as a signal, and draw the preview in the PARENT (portaled, `position: fixed`, `pointer-events: none` so hovering the preview still hovers the link). Place it ABOVE the target, left-aligned: the arrow cursor covers down-right of its hotspot, so a pill under the link sits under the pointer. Verify with a real pointer hover in the browser pane (`computer hover` drives `:hover`; coordinates = CSS px × screenshot-frame/`innerWidth`) and in the installed app — the mock's event path proves nothing here.
+**Discrimination:** rendering state is not an event. The engine maintains `:hover` on the frame's elements with or without scripts, and the hover chain climbs into the OWNER `<iframe>` element in the parent document — so `frame.matches(":hover")` and `frame.contentDocument.querySelectorAll("a[href]:hover")` are plain same-origin DOM reads that work in both engines. A `title` attribute is the other event-free option (a native tooltip via default UI) but arrives after ~1 s in system styling, and a `title` on the IFRAME itself surfaces as a stray tooltip over the whole body (for example "Email content") — use `aria-label` for the frame's accessible name.
+**Action:** a module-level poll (≈80 ms, started when a frame mounts, stopped when none is left) checks `frame.matches(":hover")` per frame and queries the hovered anchor only inside a hovered one; publish the target AND its box (`anchor.getBoundingClientRect()` + the frame's rect — a body scaled with a CSS transform already reports transformed rects; the frame never scrolls internally) as a signal, and draw the preview in the PARENT (portaled, `position: fixed`, `pointer-events: none` so hovering the preview still hovers the link). Place it ABOVE the target, left-aligned: the arrow cursor covers down-right of its hotspot, so a pill under the link sat under the pointer. Verify with a real pointer hover in the browser pane (`computer hover` drives `:hover`; coordinates = CSS px × screenshot-frame/`innerWidth`) and in the installed app — the mock's event path proves nothing here. A hover card is a WINDOW-wide surface: mount it once at the app root, never inside the pane that first needed it (entry 80).
 
 ## 18. The native context menu's "Copy Link" copies the REWRITTEN href — fix it at the MENU, in the app process
 
@@ -331,7 +331,7 @@ verifies fine.
 the real UI modules with the native bridge stubbed (a small harness entry file plus a build script), serve it locally, drive it in the Browser pane, spy on
 bridge messages by replacing `window.webkit.messageHandlers.<name>.postMessage`. Reproduce
 and fix there, rebuild the app, then confirm with ONE eval once the window is visible
-(a `--relaunch` puts it on screen behind other windows).
+(a background relaunch puts it on screen behind other windows).
 
 ## 20. Escape "does nothing" in a text field — macOS autocorrect's bubble ate it
 
@@ -347,7 +347,7 @@ keydown. Synthetic events never raise the bubble, which is why every headless ch
 passes. A Chromium harness never shows it either.
 **Action:** the standing rule, applied at the element factory: every `input`/`textarea`
 the app creates gets `autocorrect="off" autocapitalize="off" autocomplete="off"
-spellcheck="false"` (set inside the app's element-creation helper), and a helper stamps the same on
+spellcheck="false"` (in the app's element-creation helper), and a helper stamps the same on
 fields a library builds (CodeMirror's find panel → `disableAutocorrect(panel)` the
 first time the panel appears). Keep a shell-side fallback for Escape anyway
 (`WKWebView.cancelOperation(_:)` → push an `escape` event) — it costs one override.
@@ -417,7 +417,7 @@ have been reloading.
 
 ## 25. `evaluateJavaScript` cannot return a Promise — "JavaScript execution returned a result of an unsupported type"
 
-**Trigger:** a headless check evaluates an `async` function or anything that returns a Promise through `WKWebView.evaluateJavaScript` (the app's `eval` / `settings js` command) and gets `unsupported type` back — while the side effect DID happen. **Discrimination:** the error reads like the script failed; it only means the completion value could not be serialized. Re-running "to make it work" repeats the side effect (a page reorder can run twice that way before the message is understood). **Action:** make the evaluated expression synchronous — start the async work, stash its outcome on `window.__r`, end the script with a plain value (`1`), then read `window.__r` in a second call after a short wait; or use `callAsyncJavaScript` in the shell when the app's command surface can be changed. Read the result from the app's state / the file on disk before assuming failure.
+**Trigger:** a headless check evaluates an `async` function or anything that returns a Promise through `WKWebView.evaluateJavaScript` (the app's `eval` / `settings js` command) and gets `unsupported type` back — while the side effect DID happen. **Discrimination:** the error reads like the script failed; it only means the completion value could not be serialized. Re-running "to make it work" repeats the side effect (a page reorder can run twice that way). **Action:** make the evaluated expression synchronous — start the async work, stash its outcome on `window.__r`, end the script with a plain value (`1`), then read `window.__r` in a second call after a short wait; or use `callAsyncJavaScript` in the shell when the app's command surface can be changed. Read the result from the app's state / the file on disk before assuming failure.
 
 ## 26. `@property`-driven conic gradients animate in WKWebView — the one-element travelling border
 
@@ -1044,7 +1044,7 @@ mid-session) cannot win this way: route its Esc through the app's own escape hoo
 
 - **Trigger:** native code sends a key chord into a web page to drive the site (a mode toggle, a shortcut) with
   `NSEvent.keyEvent` + `window.sendEvent`, or you need one web view dark and another light.
-- **Discrimination:** two silent failures, both measured in a tabbed web-wrapper app's logs. (1) A HIDDEN `WKWebView` (a background
+- **Discrimination:** two silent failures, both measured in a tabbed web-view app's logs. (1) A HIDDEN `WKWebView` (a background
   tab) refuses first responder, so the event goes to whatever view already has focus: the visible tab got two toggles
   and the background tab none. (2) When the page does not consume the key (still loading, a modal's input focused),
   WebKit hands the unhandled event back up the responder chain to the main menu's key equivalents: an app menu item on
@@ -1061,7 +1061,7 @@ mid-session) cannot win this way: route its Esc through the app's own escape hoo
   shown on focus, a poll paused while hidden) and you test it in a headless `WKWebView` that is never ordered in.
 - **Discrimination:** the feature is right and the probe is not: an unshown window never has focus and its document
   reports `visibilityState === "hidden"`, so the feature waits forever and the step times out ("no toast"). Faking only
-  `hasFocus` is not enough when the gate also reads visibility (measured: a "came back" toast stayed held until
+  `hasFocus` is not enough when the gate also reads visibility (measured: a return toast stayed held until
   both were faked).
 - **Action:** in the probe, before triggering the feature: `document.hasFocus = () => true;
   Object.defineProperty(document, "visibilityState", { get: () => "visible" });`. Keep the real gate in the app (both
@@ -1094,7 +1094,7 @@ mid-session) cannot win this way: route its Esc through the app's own escape hoo
   which starts another tool inside the first; (2) even off main, the waits starve the SHARED pool: 80 page calls each
   hold a pool thread waiting for an output read queued on that same pool, every thread is taken, no read ever starts
   (`sample <pid>`: 100+ threads in your shell helper under `__ulock_wait`, main thread idle). Moving calls off main
-  fixes (1) only. Process exit itself is fine
+  fixes (1) only; an app fixed only that way still freezes under the next burst. Process exit itself is fine
   (`terminationHandler` is delivered on its own queue even with the pool full, measured).
 - **Action:**
   - Read a tool's pipes on a `Thread` of its own (`Thread { data = h.readDataToEndOfFile(); done.signal() }.start()`),
@@ -1109,11 +1109,11 @@ mid-session) cannot win this way: route its Esc through the app's own escape hoo
 
 ## 74. A headless KEY hook must refuse any window that isn't a test window, inside the APP
 
-- **Trigger:** an app test hook that sends a real key press to "the frontmost window" (a `<scheme>://key` URL, a `sendEvent`
+- **Trigger:** an app test hook that sends a real key press to "the frontmost window" (`<scheme>://key`, a `sendEvent`
   helper), used by a test that first checks which document is in front.
 - **Discrimination:** the check and the key are two separate URL commands; the user (or another window) can come to
-  the front in between. For example, the check passes, the user brings a real document forward, and a key chord meant for a
-  scratch note types into the top of that real document. An eval can guard itself in the same JS
+  the front in between. If the check passes and the user then brings a real document forward, a key chord meant for a
+  scratch note types into that real document instead. An eval can guard itself in the same JS
   run; a key press can't, so the guard has to live where the key is sent.
 - **Action:** the native key hook refuses unless the target window is the layout guard's own window, or its document
   AND folder are scratch paths (`/tmp`, `/private/tmp`, `/var/folders`, or none), and writes `refused: …` to its
@@ -1162,3 +1162,21 @@ mid-session) cannot win this way: route its Esc through the app's own escape hoo
   2. **A menu that closes on scroll closes on the probe's own `scrollIntoView`**: the scroll event arrives a frame later. Scroll, wait about 0.4 s, then open.
   3. **`elementFromPoint` returns null for a point outside the viewport**, so a right-click handler that re-finds its target from the point misses anything below the fold. Use the event's own `target` for page-DOM clicks; keep the point lookup only for the native path, whose point is always on screen.
   4. **A launch overlay that never finishes off-screen** (an entrance animation, see entry 66) sits on top of everything, and `elementFromPoint` returns it. Remove it in the probe before any "is it on top" check; it is not app UI.
+
+## 80. A hover card mounted inside ONE pane is missing everywhere else, and an `inert` frame hands the pointer to its parent
+
+- **Trigger:** "link previews don't work while composing" (or in a second window, a dialog, a popup editor): the hover card works in the reading pane and nowhere else.
+- **Discrimination:** two separate gaps, both silent. (1) The card component was rendered INSIDE the reading pane, so a window without that pane (a compose window) has no card at all, and its z-index sat below the composer's backdrop. (2) Its only source was the email frames' `:hover` poll (entry 17), so links in page DOM (a rich editor's anchors: what the user writes, a reply's quote, a signature) were never read. A third surface hides inside: a preview frame marked `inert` (so it can never take focus) never matches `:hover`, but WebKit hit-tests the pointer onto the element BEHIND it: `elementFromPoint` over the frame returns its parent wrapper, so the PAGE receives `pointermove` there.
+- **Action:** mount the card once at the app root (every window), above every modal layer, `pointer-events: none`. Feed one signal from several sources, each clearing only its own half: the frame poll, plus page `pointermove` (capture) for `.ProseMirror a[href]`, plus a GEOMETRY lookup for the inert frame (the pointer's point against `a.getClientRects()` in the frame's document; calibrate a `zoom`-shrunk preview with `frame.clientWidth / doc.documentElement.getBoundingClientRect().width`). Clear on a held button (drag-select), `keydown` AND `beforeinput` (an earlier capture listener may stop the keydown), window blur and leaving the page; re-ask on scroll from the last point. Guard: a test that fails if the card is rendered inside the pane again.
+
+## 81. Probing HOVER offscreen: WebKit drops native mouseMoved, and the page is hidden and unfocused
+
+- **Trigger:** an offscreen WKWebView probe (entry 4) must prove a hover feature, and `web.mouseMoved(with:)` produces no `pointermove` at all, even with `acceptsMouseMovedEvents = true` and a `mouseEntered` first (measured). Clicks handed to `mouseDown:` / `mouseUp:` still work (entry 7).
+- **Discrimination:** an app gate such as "only while the app is active" also fails offscreen: `document.visibilityState` is `"hidden"` and `document.hasFocus()` is false in a never-shown window, so the feature correctly does nothing and the probe looks like a broken feature.
+- **Action:** in the probe page, `document.hasFocus = () => true; Object.defineProperty(document, "visibilityState", {get: () => "visible"})`; then move by `const el = document.elementFromPoint(x, y); el.dispatchEvent(new PointerEvent("pointermove", {clientX: x, clientY: y, bubbles: true}))`. WebKit's own hit-testing still picks the element a real pointer would land on (it is how the inert-frame case of entry 80 was proven), and recording `el` in the output shows it. Expose the published signal (e.g. `window.__hoveredLink()`) so a failure says whether detection or drawing broke.
+
+## 82. A popover placed by its measured size covers its target when its content arrives late
+
+- **Trigger:** a fixed popover placed ABOVE its target by `top = target.top - gap - el.offsetHeight` overlaps the target when its content is already cached (it shows at once, then grows), or after an image loads.
+- **Discrimination:** the placement ran while the box held only its first line; in SolidJS the "remeasure" handler was `setFlag(v => v)`, which notifies NOTHING (same value, the signal's `equals` swallows it), so the late growth never re-placed the box. A fresh, uncached hover hides it because the content lands before the dwell timer.
+- **Action:** a `createSignal(0, { equals: false })` tick read by the placement effect, bumped by a `ResizeObserver` on the popover itself (and by image `onLoad`); disconnect it on cleanup. Any size change re-places it.
