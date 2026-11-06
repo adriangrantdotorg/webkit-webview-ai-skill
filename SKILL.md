@@ -1044,7 +1044,7 @@ mid-session) cannot win this way: route its Esc through the app's own escape hoo
 
 - **Trigger:** native code sends a key chord into a web page to drive the site (a mode toggle, a shortcut) with
   `NSEvent.keyEvent` + `window.sendEvent`, or you need one web view dark and another light.
-- **Discrimination:** two silent failures, both measured in a tabbed web-view app's logs. (1) A HIDDEN `WKWebView` (a background
+- **Discrimination:** two silent failures, both measured in app logs. (1) A HIDDEN `WKWebView` (a background
   tab) refuses first responder, so the event goes to whatever view already has focus: the visible tab got two toggles
   and the background tab none. (2) When the page does not consume the key (still loading, a modal's input focused),
   WebKit hands the unhandled event back up the responder chain to the main menu's key equivalents: an app menu item on
@@ -1061,8 +1061,7 @@ mid-session) cannot win this way: route its Esc through the app's own escape hoo
   shown on focus, a poll paused while hidden) and you test it in a headless `WKWebView` that is never ordered in.
 - **Discrimination:** the feature is right and the probe is not: an unshown window never has focus and its document
   reports `visibilityState === "hidden"`, so the feature waits forever and the step times out ("no toast"). Faking only
-  `hasFocus` is not enough when the gate also reads visibility (measured: a return toast stayed held until
-  both were faked).
+  `hasFocus` is not enough when the gate also reads visibility (measured: a return toast stayed held until both were faked).
 - **Action:** in the probe, before triggering the feature: `document.hasFocus = () => true;
   Object.defineProperty(document, "visibilityState", { get: () => "visible" });`. Keep the real gate in the app (both
   checks, plus a `focus` / `visibilitychange` listener that runs what was held), and say in the probe's comment that the
@@ -1112,8 +1111,8 @@ mid-session) cannot win this way: route its Esc through the app's own escape hoo
 - **Trigger:** an app test hook that sends a real key press to "the frontmost window" (`<scheme>://key`, a `sendEvent`
   helper), used by a test that first checks which document is in front.
 - **Discrimination:** the check and the key are two separate URL commands; the user (or another window) can come to
-  the front in between. If the check passes and the user then brings a real document forward, a key chord meant for a
-  scratch note types into that real document instead. An eval can guard itself in the same JS
+  the front in between. For example, the check passes, the user brings one of their own documents forward, and a key chord meant for a
+  scratch document types into the real one. An eval can guard itself in the same JS
   run; a key press can't, so the guard has to live where the key is sent.
 - **Action:** the native key hook refuses unless the target window is the layout guard's own window, or its document
   AND folder are scratch paths (`/tmp`, `/private/tmp`, `/var/folders`, or none), and writes `refused: …` to its
@@ -1173,10 +1172,24 @@ mid-session) cannot win this way: route its Esc through the app's own escape hoo
 
 - **Trigger:** an offscreen WKWebView probe (entry 4) must prove a hover feature, and `web.mouseMoved(with:)` produces no `pointermove` at all, even with `acceptsMouseMovedEvents = true` and a `mouseEntered` first (measured). Clicks handed to `mouseDown:` / `mouseUp:` still work (entry 7).
 - **Discrimination:** an app gate such as "only while the app is active" also fails offscreen: `document.visibilityState` is `"hidden"` and `document.hasFocus()` is false in a never-shown window, so the feature correctly does nothing and the probe looks like a broken feature.
-- **Action:** in the probe page, `document.hasFocus = () => true; Object.defineProperty(document, "visibilityState", {get: () => "visible"})`; then move by `const el = document.elementFromPoint(x, y); el.dispatchEvent(new PointerEvent("pointermove", {clientX: x, clientY: y, bubbles: true}))`. WebKit's own hit-testing still picks the element a real pointer would land on (it is how the inert-frame case of entry 80 was proven), and recording `el` in the output shows it. Expose the published signal (e.g. `window.__hoveredLink()`) so a failure says whether detection or drawing broke.
+- **Action:** in the probe page, `document.hasFocus = () => true; Object.defineProperty(document, "visibilityState", {get: () => "visible"})`; then move by `const el = document.elementFromPoint(x, y); el.dispatchEvent(new PointerEvent("pointermove", {clientX: x, clientY: y, bubbles: true}))`. WebKit's own hit-testing still picks the element a real pointer would land on (it is how the inert-frame case of entry 80 was proven), and recording `el` in the output shows it. Expose the published signal (for example `window.__hoveredLink()`) so a failure says whether detection or drawing broke.
 
 ## 82. A popover placed by its measured size covers its target when its content arrives late
 
 - **Trigger:** a fixed popover placed ABOVE its target by `top = target.top - gap - el.offsetHeight` overlaps the target when its content is already cached (it shows at once, then grows), or after an image loads.
 - **Discrimination:** the placement ran while the box held only its first line; in SolidJS the "remeasure" handler was `setFlag(v => v)`, which notifies NOTHING (same value, the signal's `equals` swallows it), so the late growth never re-placed the box. A fresh, uncached hover hides it because the content lands before the dwell timer.
 - **Action:** a `createSignal(0, { equals: false })` tick read by the placement effect, bumped by a `ResizeObserver` on the popover itself (and by image `onLoad`); disconnect it on cleanup. Any size change re-places it.
+
+## 83. A WKWebView snapshot's pixels are NOT the page's CSS colors; verify colors from the DOM
+
+- **Trigger:** you verify a theme (or any color) by sampling pixels from `WKWebView.takeSnapshot` (an app's `snapshot`
+  URL command) and compare them to the theme file's hex values.
+- **Discrimination:** every theme read a shade off its file: Rosé Pine's `#191724` page sampled `#211f30`, Catppuccin
+  Mocha `#1e1e2e` sampled `#28293c`, and OLD, known-good themes were off by the same amount, so it is the capture's color
+  handling, not the theme. `getComputedStyle` on the same spot returned the file's exact hex. A pixel sample still
+  proves the theme APPLIED (the dominant color changes per theme, 63% of the page) — just not the exact value.
+- **Action:** prove exact colors with the app's `eval` command: `document.elementFromPoint(x, y)`, walk up to the first
+  element whose `backgroundColor` isn't `rgba(0, 0, 0, 0)`, convert to hex, compare to the file (plus
+  `getComputedStyle(document.documentElement).colorScheme`). Use pixels only to show the look changed, and always run
+  the same check on a theme known to be right first, so a capture shift reads as one.
+
