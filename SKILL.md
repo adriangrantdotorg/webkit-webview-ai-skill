@@ -1044,7 +1044,7 @@ mid-session) cannot win this way: route its Esc through the app's own escape hoo
 
 - **Trigger:** native code sends a key chord into a web page to drive the site (a mode toggle, a shortcut) with
   `NSEvent.keyEvent` + `window.sendEvent`, or you need one web view dark and another light.
-- **Discrimination:** two silent failures, both measured in app logs. (1) A HIDDEN `WKWebView` (a background
+- **Discrimination:** two silent failures, both measured in a tabbed web app's logs. (1) A HIDDEN `WKWebView` (a background
   tab) refuses first responder, so the event goes to whatever view already has focus: the visible tab got two toggles
   and the background tab none. (2) When the page does not consume the key (still loading, a modal's input focused),
   WebKit hands the unhandled event back up the responder chain to the main menu's key equivalents: an app menu item on
@@ -1061,7 +1061,8 @@ mid-session) cannot win this way: route its Esc through the app's own escape hoo
   shown on focus, a poll paused while hidden) and you test it in a headless `WKWebView` that is never ordered in.
 - **Discrimination:** the feature is right and the probe is not: an unshown window never has focus and its document
   reports `visibilityState === "hidden"`, so the feature waits forever and the step times out ("no toast"). Faking only
-  `hasFocus` is not enough when the gate also reads visibility (measured: a return toast stayed held until both were faked).
+  `hasFocus` is not enough when the gate also reads visibility (measured: a return toast stayed held until
+  both were faked).
 - **Action:** in the probe, before triggering the feature: `document.hasFocus = () => true;
   Object.defineProperty(document, "visibilityState", { get: () => "visible" });`. Keep the real gate in the app (both
   checks, plus a `focus` / `visibilitychange` listener that runs what was held), and say in the probe's comment that the
@@ -1093,7 +1094,7 @@ mid-session) cannot win this way: route its Esc through the app's own escape hoo
   which starts another tool inside the first; (2) even off main, the waits starve the SHARED pool: 80 page calls each
   hold a pool thread waiting for an output read queued on that same pool, every thread is taken, no read ever starts
   (`sample <pid>`: 100+ threads in your shell helper under `__ulock_wait`, main thread idle). Moving calls off main
-  fixes (1) only; an app fixed only that way still freezes under the next burst. Process exit itself is fine
+  fixes (1) only; a fix that does only that still freezes. Process exit itself is fine
   (`terminationHandler` is delivered on its own queue even with the pool full, measured).
 - **Action:**
   - Read a tool's pipes on a `Thread` of its own (`Thread { data = h.readDataToEndOfFile(); done.signal() }.start()`),
@@ -1111,8 +1112,8 @@ mid-session) cannot win this way: route its Esc through the app's own escape hoo
 - **Trigger:** an app test hook that sends a real key press to "the frontmost window" (`<scheme>://key`, a `sendEvent`
   helper), used by a test that first checks which document is in front.
 - **Discrimination:** the check and the key are two separate URL commands; the user (or another window) can come to
-  the front in between. For example, the check passes, the user brings one of their own documents forward, and a key chord meant for a
-  scratch document types into the real one. An eval can guard itself in the same JS
+  the front in between. For example: the check passes, the user brings a real document forward, and a key chord meant for a
+  scratch note types into the real document instead. An eval can guard itself in the same JS
   run; a key press can't, so the guard has to live where the key is sent.
 - **Action:** the native key hook refuses unless the target window is the layout guard's own window, or its document
   AND folder are scratch paths (`/tmp`, `/private/tmp`, `/var/folders`, or none), and writes `refused: …` to its
@@ -1172,7 +1173,7 @@ mid-session) cannot win this way: route its Esc through the app's own escape hoo
 
 - **Trigger:** an offscreen WKWebView probe (entry 4) must prove a hover feature, and `web.mouseMoved(with:)` produces no `pointermove` at all, even with `acceptsMouseMovedEvents = true` and a `mouseEntered` first (measured). Clicks handed to `mouseDown:` / `mouseUp:` still work (entry 7).
 - **Discrimination:** an app gate such as "only while the app is active" also fails offscreen: `document.visibilityState` is `"hidden"` and `document.hasFocus()` is false in a never-shown window, so the feature correctly does nothing and the probe looks like a broken feature.
-- **Action:** in the probe page, `document.hasFocus = () => true; Object.defineProperty(document, "visibilityState", {get: () => "visible"})`; then move by `const el = document.elementFromPoint(x, y); el.dispatchEvent(new PointerEvent("pointermove", {clientX: x, clientY: y, bubbles: true}))`. WebKit's own hit-testing still picks the element a real pointer would land on (it is how the inert-frame case of entry 80 was proven), and recording `el` in the output shows it. Expose the published signal (for example `window.__hoveredLink()`) so a failure says whether detection or drawing broke.
+- **Action:** in the probe page, `document.hasFocus = () => true; Object.defineProperty(document, "visibilityState", {get: () => "visible"})`; then move by `const el = document.elementFromPoint(x, y); el.dispatchEvent(new PointerEvent("pointermove", {clientX: x, clientY: y, bubbles: true}))`. WebKit's own hit-testing still picks the element a real pointer would land on (it is how the inert-frame case of entry 80 was proven), and recording `el` in the output shows it. Expose the published signal (e.g. `window.__hoveredLink()`) so a failure says whether detection or drawing broke.
 
 ## 82. A popover placed by its measured size covers its target when its content arrives late
 
@@ -1193,3 +1194,22 @@ mid-session) cannot win this way: route its Esc through the app's own escape hoo
   `getComputedStyle(document.documentElement).colorScheme`). Use pixels only to show the look changed, and always run
   the same check on a theme known to be right first, so a capture shift reads as one.
 
+## 84. A `position: fixed` box with only `left` sizes itself to the room LEFT of the window edge — it creeps, wraps, or hangs off
+
+- **Trigger:** an overlay placed by script (`style.left = …`) that "grows as if typed out", "expands right to left",
+  wraps at half the window, or a clamp that "should" keep it on screen and doesn't. Also any new fixed box: a menu, a
+  toast, a drag ghost, a hover pill.
+- **Discrimination:** a fixed box with `width: auto` and only `left` set shrinks to fit `viewport − left`. Near the
+  right edge it is narrow; a clamp that moves it left by that narrow width gives it more room, it widens, re-measures,
+  moves again: one step per frame, read as typing (measured: the same URL pill 261 px at the left, 60 px near the right
+  edge). A box at `left: 50%; transform: translateX(-50%)` gets half the window and wraps a long toast early. A box
+  with both edges set (`inset`, or `left` + `right`) is sized by them and is fine. Second trap: a clamp run ONCE in a
+  `queueMicrotask` after the box is shown measures nothing when the box is hidden at that moment (a toolbar that waits
+  for mouse-up): `offsetWidth` of a detached or not-yet-rendered node is 0, the clamp lets the stored position through,
+  and the box appears half off screen (measured −153 px).
+- **Action:** (1) every fixed box's CSS declares its own width: `width: max-content` plus a `max-width` (cap toasts at a
+  reading width, e.g. `min(720px, calc(100vw - 32px))`); (2) clamp at RENDER time from the measured width
+  (a ResizeObserver feeding a signal, `left = clamp(center, w/2 + 8, innerWidth − w/2 − 8)`), hidden until the width is
+  known; (3) guard it with a test that SCANS every CSS rule holding `position: fixed` (never a hand list: the scan
+  found 9 boxes a list had missed) and fails on one that sizes itself by neither a width nor both edges; a modifier
+  rule counts as sized when its element's base rule is.
