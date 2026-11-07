@@ -1044,7 +1044,7 @@ mid-session) cannot win this way: route its Esc through the app's own escape hoo
 
 - **Trigger:** native code sends a key chord into a web page to drive the site (a mode toggle, a shortcut) with
   `NSEvent.keyEvent` + `window.sendEvent`, or you need one web view dark and another light.
-- **Discrimination:** two silent failures, both measured in a tabbed web app's logs. (1) A HIDDEN `WKWebView` (a background
+- **Discrimination:** two silent failures, both measured in app logs. (1) A HIDDEN `WKWebView` (a background
   tab) refuses first responder, so the event goes to whatever view already has focus: the visible tab got two toggles
   and the background tab none. (2) When the page does not consume the key (still loading, a modal's input focused),
   WebKit hands the unhandled event back up the responder chain to the main menu's key equivalents: an app menu item on
@@ -1112,8 +1112,8 @@ mid-session) cannot win this way: route its Esc through the app's own escape hoo
 - **Trigger:** an app test hook that sends a real key press to "the frontmost window" (`<scheme>://key`, a `sendEvent`
   helper), used by a test that first checks which document is in front.
 - **Discrimination:** the check and the key are two separate URL commands; the user (or another window) can come to
-  the front in between. For example: the check passes, the user brings a real document forward, and a key chord meant for a
-  scratch note types into the real document instead. An eval can guard itself in the same JS
+  the front in between. For example, the check passes, the user brings their own document forward, and a key chord meant for a
+  scratch note types into the real document. An eval can guard itself in the same JS
   run; a key press can't, so the guard has to live where the key is sent.
 - **Action:** the native key hook refuses unless the target window is the layout guard's own window, or its document
   AND folder are scratch paths (`/tmp`, `/private/tmp`, `/var/folders`, or none), and writes `refused: …` to its
@@ -1213,3 +1213,27 @@ mid-session) cannot win this way: route its Esc through the app's own escape hoo
   known; (3) guard it with a test that SCANS every CSS rule holding `position: fixed` (never a hand list: the scan
   found 9 boxes a list had missed) and fails on one that sizes itself by neither a width nor both edges; a modifier
   rule counts as sized when its element's base rule is.
+
+## 85. A Google Docs toolbar setting (zoom) has no script call: drive its Closure menu with the exact mouse sequence, unseen
+
+**Trigger:** a webview wrapper must change a Google Docs (or any Closure-library page: Sheets, old Gmail) toolbar value
+on load, e.g. "the doc always opens at 200%", and there is no URL parameter, setting or JS API for it (Docs' zoom resets
+to 100% every load and has none). **Discrimination:** the obvious script routes fail in ways that LOOK like success:
+(a) `input.value = "200%"` + an Enter `KeyboardEvent` on the combo box's `<input>` updates the text but opens the
+dropdown and leaves it open on screen; (b) `mousedown, mouseup, click` on the item picks the value but the trailing
+`click` re-opens the menu (`aria-expanded="true"`). A bare `.click()` does nothing (Closure listens to mousedown/up).
+And a working pick that the user can SEE (the menu flashes, the page jumps 100% → 200%) is still a defect: an automation like this should run unseen. **Action:**
+1. Find the control by id and wait for it (`#zoomSelect`, its `input` holding a value, `aria-disabled` not `true`),
+   polling every 100 ms from a `.atDocumentEnd` user script, main frame only, path-gated to the one doc.
+2. Open: `mousedown` + `mouseup` (MouseEvent, `bubbles`, `cancelable`, `view: window`, `button: 0`, clientX/Y at the
+   element's center) on `.goog-toolbar-combo-button-dropdown`. Pick: `mouseover` + `mousedown` + `mouseup` on the
+   visible `.goog-menuitem` whose `textContent.trim()` is the value. No `click`. The menu closes and the typing focus
+   returns to `.docs-texteventtarget-iframe` by itself.
+3. Make it invisible: a `<style>` with `.goog-menu { opacity: 0 !important; pointer-events: none !important; }` added
+   before step 2 and removed ~150 ms after the pick; a second `<style>` with `.kix-appview-editor { opacity: 0 !important; }`
+   from the start until the value is set (+120 ms for the repaint), with a 15 s fail-safe that removes it anyway.
+   Measured: the doc showed 1.3 s after launch, 0.8 s after a reload.
+4. Expose a page function (e.g. `window.__setZoom(value)`) so a Settings change applies to the open page at once, and re-add the user
+   script whenever its baked value changes (`removeAllUserScripts` wipes every script: keep them in ONE installer).
+5. Verify unseen: a MutationObserver counting menus that are visible AND `opacity != 0` during a live change must read 0;
+   the input reads the value; `document.activeElement` is the text-event iframe.
