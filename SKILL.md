@@ -1,12 +1,12 @@
 ---
 name: webkit-webview-ai-skill
-description: "Hard-won WebKit/WKWebView behaviors for Mac apps whose UI is a web page inside a WKWebView (Tauri apps, single-URL wrapper apps, any Solid/React/TS UI shipped in a Mac bundle). Trigger whenever (1) something works in Chrome or the browser mock but not in the installed app — a click that 'does nothing' (including one that works only on the SECOND try, right after switching back to the app — Tauri swallows the first mouse by default), a shortcut that goes dead after using a text field, a popover that won't close, a pane that freezes while the rest of the app works, a right-click → Copy Link (or link drag) that pastes a custom-scheme/sink URL instead of the real one; (2) you need to VERIFY WebKit-only behavior without showing a window or triggering a TCC prompt (the offscreen WKWebView probe pattern); (3) you're designing a web UI that will run in WKWebView and want to avoid the traps up front (focus, native date inputs, iframes, drag-drop, resource errors); (4) the caret jumps to another line WHILE TYPING, or you are adding the macOS spelling panel / Check Document Now / grammar checking / right-click spelling suggestions to a WKWebView editor; or (5) a setting flipped in Settings \"does nothing\" in a window or surface that was ALREADY open, kept mounted, or pre-warmed (per-window stores, and SolidJS reads that are not tracked); or (6) a popup's own ↑/↓ / Enter handling \"does nothing\" while the list behind it moves instead. Also (7) an `evaluateJavaScript` / eval-hook probe returns nothing, a stale value or 'unsupported type', (8) a one-shot celebration or reveal replays after a redraw or when you come back to the screen, (9) an inline rename / contenteditable field commits immediately or 'presses Enter for me' due to synthetic WebKit blurs on menu dismissals or focus shifts, (10) a flex sidebar auto-fitting its width from child `.label` bounds grows by +7px on every autosave redraw while typing, (11) unhiding a modal list (Command Palette / Quick Switcher) under a stationary cursor fires synthetic `mouseenter` and steals selection from row 0, or (12) a key chord sent from native code into a page lands in the wrong tab or fires the app menu, or one web view must render dark while another renders light. The browser mock is Chromium and lies about every item here."
+description: "Hard-won WebKit/WKWebView behaviors for Mac apps whose UI is a web page inside a WKWebView (Tauri apps, native WKWebView wrapper apps, any Solid/React/TS UI shipped in a Mac bundle). Trigger whenever (1) something works in Chrome or the browser mock but not in the installed app — a click that 'does nothing' (including one that works only on the SECOND try, right after switching back to the app — Tauri swallows the first mouse by default), a shortcut that goes dead after using a text field, a popover that won't close, a pane that freezes while the rest of the app works, a right-click → Copy Link (or link drag) that pastes a custom-scheme/sink URL instead of the real one; (2) you need to VERIFY WebKit-only behavior without showing a window or triggering a TCC prompt (the offscreen WKWebView probe pattern); (3) you're designing a web UI that will run in WKWebView and want to avoid the traps up front (focus, native date inputs, iframes, drag-drop, resource errors); (4) the caret jumps to another line WHILE TYPING or appears and jumps around WHILE SCROLLING, or you are adding the macOS spelling panel / Check Document Now / grammar checking / right-click spelling suggestions to a WKWebView editor; or (5) a setting flipped in Settings \"does nothing\" in a window or surface that was ALREADY open, kept mounted, or pre-warmed (per-window stores, and SolidJS reads that are not tracked); or (6) a popup's own ↑/↓ / Enter handling \"does nothing\" while the list behind it moves instead. Also (7) an `evaluateJavaScript` / eval-hook probe returns nothing, a stale value or 'unsupported type', (8) a one-shot celebration or reveal replays after a redraw or when you come back to the screen, (9) an inline rename / contenteditable field commits immediately or 'presses Enter for me' due to synthetic WebKit blurs on menu dismissals or focus shifts, (10) a flex sidebar auto-fitting its width from child `.label` bounds grows by +7px on every autosave redraw while typing, (11) unhiding a modal list (Command Palette / Quick Switcher) under a stationary cursor fires synthetic `mouseenter` and steals selection from row 0, or (12) a key chord sent from native code into a page lands in the wrong tab or fires the app menu, or one web view must render dark while another renders light. The browser mock is Chromium and lies about every item here."
 ---
 
 # WebKit / WKWebView gotchas for web UIs inside Mac apps
 
-Mac apps increasingly ship a web UI inside a WKWebView (Tauri, single-URL wrappers).
-It is tempting to verify in a Chromium browser pane or a browser mock; the installed app runs
+Many Mac apps ship a web UI inside a WKWebView (Tauri, native wrappers).
+It is easy to verify in a Chromium browser pane or a browser mock, while the installed app runs
 WebKit. Every item below is a place where those two disagree, learned the hard way. Each carries its trigger, the near-miss to rule out, and the fix.
 
 ## 1. Buttons never take focus on click — a focused input keeps the keyboard
@@ -50,7 +50,7 @@ click can't reach the button from that one read.
 frontend (`dist/`, root-relative asset paths rewritten to relative), loads it in a
 `WKWebView` inside an `NSWindow` that is never ordered front, with
 `NSApplication.shared.setActivationPolicy(.prohibited)` — no Dock icon, no focus, no
-TCC. Drive it with `evaluateJavaScript`; poll for readiness (a `window.__app…` flag or a DOM
+TCC. Drive it with `evaluateJavaScript`; poll for readiness (`window.__edx…` or a DOM
 marker). Facts about that environment:
 - **Native KEY events work** through `win.sendEvent(NSEvent.keyEvent(…))` — the
   frame-focus probe proves keymap routing that way.
@@ -133,7 +133,7 @@ X is a control you click ONCE right after coming back from another app (a search
 toolbar verb, a menu chip); often reported repeatedly because a previous "fix" targeted
 the page. Check in one grep: `acceptFirstMouse` in `tauri.conf.json` windows and
 `.accept_first_mouse(` on every `WebviewWindowBuilder` — Tauri's default is `false`
-(`tauri-utils` `WindowConfig`, verified on 2.11), so the first click on an
+(`tauri-utils` `WindowConfig`, as of 2.11), so the first click on an
 inactive window only activates it and the webview never sees it.
 **Discrimination:** controls clicked repeatedly (list rows) never show it, because the
 first press is absorbed and the second lands; a probe with real WebKit clicks (section 4)
@@ -234,8 +234,8 @@ says it's rendered (`document.querySelector` finds it, its inline `left/top` loo
 the control that raises it is lit), and it lives inside a container that animates in —
 Settings cards, panels, dialogs with `animation: … both`. Check in one call:
 `getComputedStyle(el.closest('[class*=card],[class*=panel]')).transform !== "none"`
-(for example, a Settings card keeps `transform: translateY(0)` after
-its entry animation because of `animation-fill-mode: both` — an identity transform still
+(for example, every Settings card that keeps `transform: translateY(0)` after
+`edx-card-in` because of `animation-fill-mode: both` — an identity transform still
 creates the containing block). The link bubble computed viewport coordinates, was
 placed relative to the card, and sat clipped outside its scroll area.
 **Discrimination:** a popover that appears but at the WRONG spot is the same class; one
@@ -300,15 +300,15 @@ class and the style afterwards so the live page is untouched.
 ## 16. `Cross-Origin-Resource-Policy: same-origin` kills a cross-origin `<img>` — fetch remote images from the APP PROCESS, never the webview
 
 **Trigger:** "remote images are enabled but not showing" where the image is `https://`, `curl -I <url>` answers 200 `image/png`, and the CSP `img-src` already allows `https:` — so section 9 (mixed content) is ruled out. Run
-`curl -sI <url> | grep -i cross-origin-resource-policy`: `same-origin` (some large sites send it on every asset, so their emails draw a "?" box in a mail client) means WebKit refuses the no-cors `<img>` load from any other origin, silently, `complete=true` with `naturalWidth=0`. A Referer-keyed hotlink rule (403 only with a foreign Referer) is the sibling case with the same fix.
+`curl -sI <url> | grep -i cross-origin-resource-policy`: `same-origin` (some sites send it on every asset, so their emails' images draw a "?" box) means WebKit refuses the no-cors `<img>` load from any other origin, silently, `complete=true` with `naturalWidth=0`. A Referer-keyed hotlink rule (403 only with a foreign Referer) is the sibling case with the same fix.
 **Discrimination:** section 9 is `http://` only and shows as a broken glyph the same way — check the scheme first. A CORS error in the console is NOT this (CORP blocks silently, no console line in WebKit). A `curl` 200 proves the SERVER serves it, never that the webview may load it — prove the block with the offscreen probe (section 4): `loadHTMLString` a page with the suspect `<img>` and a known-good control (`https://www.google.com/s2/favicons?domain=apple.com&sz=64`) side by side, read both `naturalWidth`s after 6 s; suspect 0 + control 64 = CORP/hotlink, both 0 = network/machine.
 **Action:** don't touch the sanitizer or widen the CSP — register a custom scheme (`app-img://localhost/?u=<encodeURIComponent(url)>`, Tauri `register_asynchronous_uri_scheme_protocol`) whose handler fetches the URL from the app process on a worker thread (reqwest: http/https only, ~20 s timeout, size cap, a mainstream browser UA — some CDNs challenge library UAs — no cookies, no Referer), answers 200 with the upstream `content-type` + `cache-control: max-age=3600` + `access-control-allow-origin: *`, and an UNCACHED 404 on any failure so a reopen retries; add the scheme to `img-src`; point every activated `<img>` at it in the app only (the browser mock has no handler — keep the direct URL there). Gmail web, Spark and Mail.app all proxy for exactly this reason, so any email client's "load remote images" must. Keep an `#[ignore]` network unit test that fetches the exact asset that broke, and run it with `-- --ignored` before shipping.
 
 ## 17. No EVENT crosses a scriptless sandboxed iframe — but `:hover` STATE does. Read it, don't listen
 
 **Trigger:** a feature needs to know what the pointer is on INSIDE a `sandbox="allow-same-origin"` frame with no `allow-scripts` (a hovered link's URL, a hovered image, "is the pointer over the quote?"), and the obvious move is `frameDoc.addEventListener("mouseover", …)` from the parent. That listener fires in Chromium (the browser mock goes green) and NEVER in WKWebView (section 6) — the parent also gets no `mousemove` while the pointer is over the frame, so there is no event path at all.
-**Discrimination:** rendering state is not an event. The engine maintains `:hover` on the frame's elements with or without scripts, and the hover chain climbs into the OWNER `<iframe>` element in the parent document — so `frame.matches(":hover")` and `frame.contentDocument.querySelectorAll("a[href]:hover")` are plain same-origin DOM reads that work in both engines. A `title` attribute is the other event-free option (a native tooltip via default UI) but arrives after ~1 s in system styling, and a `title` on the IFRAME itself surfaces as a stray tooltip over the whole body (for example "Email content") — use `aria-label` for the frame's accessible name.
-**Action:** a module-level poll (≈80 ms, started when a frame mounts, stopped when none is left) checks `frame.matches(":hover")` per frame and queries the hovered anchor only inside a hovered one; publish the target AND its box (`anchor.getBoundingClientRect()` + the frame's rect — a body scaled with a CSS transform already reports transformed rects; the frame never scrolls internally) as a signal, and draw the preview in the PARENT (portaled, `position: fixed`, `pointer-events: none` so hovering the preview still hovers the link). Place it ABOVE the target, left-aligned: the arrow cursor covers down-right of its hotspot, so a pill under the link sat under the pointer. Verify with a real pointer hover in the browser pane (`computer hover` drives `:hover`; coordinates = CSS px × screenshot-frame/`innerWidth`) and in the installed app — the mock's event path proves nothing here. A hover card is a WINDOW-wide surface: mount it once at the app root, never inside the pane that first needed it (entry 80).
+**Discrimination:** rendering state is not an event. The engine maintains `:hover` on the frame's elements with or without scripts, and the hover chain climbs into the OWNER `<iframe>` element in the parent document — so `frame.matches(":hover")` and `frame.contentDocument.querySelectorAll("a[href]:hover")` are plain same-origin DOM reads that work in both engines. A `title` attribute is the other event-free option (a native tooltip via default UI) but arrives after ~1 s in system styling, and a `title` on the IFRAME itself surfaces as a stray tooltip over the whole body — use `aria-label` for the frame's accessible name.
+**Action:** a module-level poll (≈80 ms, started when a frame mounts, stopped when none is left) checks `frame.matches(":hover")` per frame and queries the hovered anchor only inside a hovered one; publish the target AND its box (`anchor.getBoundingClientRect()` + the frame's rect — a body scaled with a CSS transform already reports transformed rects; the frame never scrolls internally) as a signal, and draw the preview in the PARENT (portaled, `position: fixed`, `pointer-events: none` so hovering the preview still hovers the link). Place it ABOVE the target, left-aligned: the arrow cursor covers down-right of its hotspot, so a pill under the link sits under the pointer. Verify with a real pointer hover in a browser (a real pointer drives `:hover`) and in the installed app — the mock's event path proves nothing here. A hover card is a WINDOW-wide surface: mount it once at the app root, never inside the pane that first needed it (entry 80).
 
 ## 18. The native context menu's "Copy Link" copies the REWRITTEN href — fix it at the MENU, in the app process
 
@@ -328,7 +328,7 @@ activating the app to "make it render" steals focus (never). A visible-but-behin
 window (`orderBack`) DOES lay out — that's the normal background-relaunch state and it
 verifies fine.
 **Action:** don't debug rendering there. Build a BROWSER HARNESS of the web layer: esbuild
-the real UI modules with the native bridge stubbed (a small harness entry file plus a build script), serve it locally, drive it in the Browser pane, spy on
+the real UI modules with the native bridge stubbed (a small harness entry file plus a build script), serve it locally, drive it in a browser, spy on
 bridge messages by replacing `window.webkit.messageHandlers.<name>.postMessage`. Reproduce
 and fix there, rebuild the app, then confirm with ONE eval once the window is visible
 (a background relaunch puts it on screen behind other windows).
@@ -347,7 +347,7 @@ keydown. Synthetic events never raise the bubble, which is why every headless ch
 passes. A Chromium harness never shows it either.
 **Action:** the standing rule, applied at the element factory: every `input`/`textarea`
 the app creates gets `autocorrect="off" autocapitalize="off" autocomplete="off"
-spellcheck="false"` (in the app's element-creation helper), and a helper stamps the same on
+spellcheck="false"` (in the app's element-building helper), and a helper stamps the same on
 fields a library builds (CodeMirror's find panel → `disableAutocorrect(panel)` the
 first time the panel appears). Keep a shell-side fallback for Escape anyway
 (`WKWebView.cancelOperation(_:)` → push an `escape` event) — it costs one override.
@@ -417,7 +417,7 @@ have been reloading.
 
 ## 25. `evaluateJavaScript` cannot return a Promise — "JavaScript execution returned a result of an unsupported type"
 
-**Trigger:** a headless check evaluates an `async` function or anything that returns a Promise through `WKWebView.evaluateJavaScript` (the app's `eval` / `settings js` command) and gets `unsupported type` back — while the side effect DID happen. **Discrimination:** the error reads like the script failed; it only means the completion value could not be serialized. Re-running "to make it work" repeats the side effect (a page reorder can run twice that way). **Action:** make the evaluated expression synchronous — start the async work, stash its outcome on `window.__r`, end the script with a plain value (`1`), then read `window.__r` in a second call after a short wait; or use `callAsyncJavaScript` in the shell when the app's command surface can be changed. Read the result from the app's state / the file on disk before assuming failure.
+**Trigger:** a headless check evaluates an `async` function or anything that returns a Promise through `WKWebView.evaluateJavaScript` (the app's `eval` / `settings js` command) and gets `unsupported type` back — while the side effect DID happen. **Discrimination:** the error reads like the script failed; it only means the completion value could not be serialized. Re-running "to make it work" repeats the side effect (a page reorder can run twice that way before the message is understood). **Action:** make the evaluated expression synchronous — start the async work, stash its outcome on `window.__r`, end the script with a plain value (`1`), then read `window.__r` in a second call after a short wait; or use `callAsyncJavaScript` in the shell when the app's command surface can be changed. Read the result from the app's state / the file on disk before assuming failure.
 
 ## 26. `@property`-driven conic gradients animate in WKWebView — the one-element travelling border
 
@@ -462,7 +462,7 @@ callback body are not. A helper called inside `createMemo` / `createEffect` is t
 `<span>{renderItem(m)}<Show when={ui.showKeys() && keyOf(m.id)}><kbd>…</kbd></Show></span>`.
 Then verify in the FAILING ORDER: build the surface first, flip the setting after, and
 flip it back — a probe that flips the setting before the surface is ever built passes on
-the broken code.
+the broken code (that is how a wrong fix ships twice before the real cause is found).
 
 ## 29. Third-party HTML on a THEMED paper: text that declares its color but no background disappears — measure contrast per element, never force white or invert
 
@@ -494,8 +494,8 @@ artwork on a transparent PNG.
 
 ## 30. "Settings opens ready to search" in a web UI: focus on every show, and hand a stray keystroke to the field WITHOUT swallowing it
 
-**Trigger:** you want Settings search focused on open, with typing
-anywhere reaching it, in an in-window web overlay or a web-rendered Settings window — open it, click
+**Trigger:** you are implementing the behavior that Settings search is focused on open and typing
+anywhere reaches it in an in-window web overlay or a web-rendered Settings window — open it, click
 a section, press a letter: nothing in the field = not done.
 **Discrimination:** `autofocus` runs once per element creation — enough only when the panel is
 re-created per open; a panel kept mounted needs the focus call on every show. Do NOT re-dispatch or
@@ -528,7 +528,7 @@ another pane (opening an email → focus moves to the reading pane) silently rem
 accelerator or a missing ACL grant looks different: those fail in EVERY state.
 **Action:** (1) prove which side handled it — `window.addEventListener("keydown", e => console.log(e.key, e.metaKey, e.defaultPrevented), true)`,
 press the chord in the failing state: the event arrives with `defaultPrevented === false`; (2) find
-the gate in the dispatcher (e.g. an `activeContexts()` function; the action's `contexts`),
+the gate in the dispatcher (the dispatcher's active-contexts resolver; the action's `contexts`),
 and register the action for every pane where its verb makes sense — a list act like select-all
 belongs to the list AND the reading pane, like every mail verb; (3) keep `skipWhenTyping` (or the
 equivalent) so the chord still stands down inside inputs, where the native menu action IS what the
@@ -547,8 +547,8 @@ even when the fix is in; only real typing (or a real NSEvent key through the win
 **Action:** (1) in `applicationWillFinishLaunching` — before the first web view, which a Finder
 open creates before didFinishLaunching — set `WebContinuousSpellCheckingEnabled = true`, and
 `WebAutomaticSpellingCorrectionEnabled`, `WebAutomaticTextReplacementEnabled`,
-`WebAutomaticQuoteSubstitutionEnabled`, `WebAutomaticDashSubstitutionEnabled` = false (unless the app
-wants autocorrect); (2) **the setting must switch WebKit itself, not only the attribute** —
+`WebAutomaticQuoteSubstitutionEnabled`, `WebAutomaticDashSubstitutionEnabled` = false (the
+no-autocorrect rule); (2) **the setting must switch WebKit itself, not only the attribute** —
 turning `spellcheck` off on the element leaves every squiggle already drawn. WKWebView answers only `toggleContinuousSpellChecking:` (no
 `isContinuousSpellCheckingEnabled` / setter — probed); read the live state by validating a menu
 item with that action — `let item = NSMenuItem(title: "", action: sel, keyEquivalent: "");
@@ -565,8 +565,8 @@ pre-batch selection). What works (measured): per visible line, `sel.collapse(lin
 task, restore the saved anchor/focus in the NEXT task (`setTimeout 0` each) — WebKit checks the whole
 line it left, and CodeMirror never adopts the parked selection (head read back unchanged mid-walk).
 Guard it: a capture `keydown` / `mousedown` listener restores the selection first, abort when the doc
-changes, skip when there is no selection to restore. **Unfocused tests LIE here (symptom: flicker and the
-cursor position jumping around):** CodeMirror ignores selectionchange while it lacks focus,
+changes, skip when there is no selection to restore. **Unfocused tests LIE here (symptom: flicker, and the cursor position
+jumps around):** CodeMirror ignores selectionchange while it lacks focus,
 so every headless run showed the caret steady — focused, it adopted each parked line (caret 7 → 2 → 543
 → 331, syntax revealed line by line). Fix: `EditorState.transactionFilter` returning `[]` for
 `!tr.docChanged && tr.isUserEvent("select")` while a `parking` flag is set; any key/click ends the walk and
@@ -589,6 +589,24 @@ right before insertion, so the selection is home in time. Verify: harness, real 
 typing while a recheck is requested every 60 ms → 0 walks and every letter contiguous; plus a walk
 interrupted mid-park by a dispatched `beforeinput` (wrap `Selection.prototype.collapse` to catch the
 parked moment) → selection restored immediately.
+
+**The parked caret is DRAWN, and the wheel is input too (symptom: while scrolling with the scroll
+wheel, the cursor appears and jumps around the file).** *Trigger:* a walk like the one above runs after a scroll
+(e.g. 400 ms after each `viewportChanged`), or the report is a caret flickering line to line with no key
+pressed. *Discrimination:* the `transactionFilter` keeps the EDITOR's caret home, so every check of
+`state.selection` passes; but the browser draws its own caret wherever the DOM selection sits, and with no
+`drawSelection()` that native caret IS the visible one. A pause between two wheel flicks was enough (the wheel was
+not in the input-silence list), and 8 flicks drew a caret on 35 lines. The same clock had a second gap: its capture
+listeners were added lazily on the first schedule call, which a first scroll made AFTER its own wheel event, so the
+first flicks never counted. *Action:* (1) `wheel` and `scroll` (capture, passive: a scrollbar drag sends only
+`scroll`) stamp `lastInputAt`, and `wheel` also ends a running walk, which re-schedules itself for the rest; (2) add
+the listeners when the editor is CONSTRUCTED, never on first use; (3) hide the parked caret: a class on a parent
+CodeMirror doesn't manage (`#editor-host.mdx-spell-walk .cm-content { caret-color: transparent !important }`,
+never a class or style on `contentDOM` / `view.dom`, whose attributes CodeMirror rewrites), added before the first
+park and removed after the last restore's task and in the guard. Measured: the caret stays hidden under half a
+second, 1.2 s after the wheel stops. Guard: an end-to-end test (real wheel flicks with 550 ms
+pauses, fails when a caret is drawn off the editor's head or a walk starts within 1.2 s of a wheel) plus
+a source test (no `sel.collapse(` outside the walk).
 
 ## 33. The standard macOS spelling tools in a WKWebView editor — panel, Check Document Now, grammar
 
@@ -681,20 +699,20 @@ and read the active section back.
 ## 39. `null` printed on the page: EVERY DOM insert method writes the word, not just `append`
 
 - **Trigger:** a view builds children with `cond ? el : null` and passes them to `append`, `prepend`, `replaceChildren`, `before`, `after` or `replaceWith`; the page shows a stray "null" (or "nullnull").
-- **Discrimination:** One app patched only `append` after the third report; the fourth came from `replaceChildren(…, flagsCard(…) /* null when clean */)`. Patching the one method in the screenshot is the failure mode.
+- **Discrimination:** Patching only `append` after the third report failed; the fourth came from `replaceChildren(…, flagsCard(…) /* null when clean */)`. Patching the one method in the screenshot is the failure mode.
 - **Action:** one patch at the top of the shared UI module, for `Element.prototype` AND `DocumentFragment.prototype`, over all six methods: `proto[m] = function (...kids) { return native.apply(this, kids.flat(Infinity).filter((k) => k != null && k !== false)); }`. Guard it twice: a source test that lists the six names, and the layout guard failing on any text node equal to "null"/"undefined" in every view — which only works when every screen has a sample in the guard.
 
 ## 40. What a person typed must live in page STATE, not in the field — a redraw rebuilds the field from the saved record
 
 - **Trigger:** a screen with editable fields also has actions that redraw it (approve a finding, clean an image, refresh a list).
-- **Discrimination:** the edited repo name went back to the original after "Approve": the redraw rebuilt the field from the saved project. Saving on every keystroke is not the fix (it can commit half-typed values).
+- **Discrimination:** an edited name went back to the original after an action like "Approve": the redraw rebuilt the field from the saved record. Saving on every keystroke is not the fix (it can commit half-typed values).
 - **Action:** a per-screen form object in the view's state (`st.approveForm = { owner, repo, vis }`, keyed by the record so another record starts fresh), fields built FROM it with `oninput` writing back; reset clears it. A source test pins the pattern.
 - **State is not storage:** the same fields were typed, "Save Progress" showed ✅, and after a restart they were gone: they lived only in `st`, and the save stored WHERE the user was, not WHAT they typed. So the form object must also reach disk while the user types; see item 42. Half-typed values are fine to store as long as the record is a draft (nothing is published until the final action).
 
 ## 41. Nothing blinks: a redraw keeps what is on screen, a late answer updates only its own card
 
-- **Trigger:** a view's `draw()` rebuilds its window (`clear(root).append(…)`, `root.innerHTML = …`), a card loads something slow (an AI-generated suggestion, a scan, a GitHub call) and then calls the page's `draw()`, or an action replaces the page with `working("…")` until it is done. Symptom: the page flashes, pictures reload, a glow or spinner jumps, a scrolled list snaps to the top, a README goes back to "Loading…".
-- **Discrimination:** On a review page, one card's late suggestion arrived and called `draw()`; the page started over with its "Checking everything once more…" spinner and a second scan, so the whole page blinked. Fixing that one card was not enough: the same blink was in every window, because every redraw rebuilt the DOM from scratch. A skeleton the first time data arrives is fine; a spinner in place of content already seen is the defect. A DOM-morphing library is the wrong fix when listeners are closures added by `h()`: morphing keeps the OLD nodes with the OLD closures.
+- **Trigger:** a view's `draw()` rebuilds its window (`clear(root).append(…)`, `root.innerHTML = …`), a card loads something slow (an AI suggestion, a scan, a network call) and then calls the page's `draw()`, or an action replaces the page with `working("…")` until it is done. Symptom: the page flashes, pictures reload, a glow or spinner jumps, a scrolled list snaps to the top, a README goes back to "Loading…".
+- **Discrimination:** In one approve screen, a card's late suggestion arrived and called `draw()`; the screen started over with its spinner and a second scan, so the whole page blinked. Fixing that one card was not enough: the same blink was in every window, because every redraw rebuilt the DOM from scratch. Treat "no blinking" as a rule for every view. A skeleton the first time data arrives is fine; a spinner in place of content already seen is the defect. A DOM-morphing library is the wrong fix when listeners are closures added by `h()`: morphing keeps the OLD nodes with the OLD closures.
 - **Action:** in the shared UI module:
   1. `steady(root, ...tree)` replaces `clear(root).append(...)` in EVERY top-level draw (and any sub-pane that redraws, such as the Settings pane and nav). Before the swap it records: `img[src]` / `video[src]` by tag + src, `root.getAnimations({ subtree: true })` currentTime keyed by `animationName | pseudoElement | tag.className`, every element with `scrollTop || scrollLeft` by child-index path, and the focused input/textarea with its selection. After the swap it moves the OLD media nodes into the new tree (copying the new attributes, so nothing reloads, not even `loading="lazy"`), sets each matching new animation's `currentTime` (glows carry on, and a finished one-shot fade-in stays finished instead of replaying), and restores scroll and focus when the node at that path has the same tag + className.
   2. `busyOver(holder, textOrWorkingEl)`: the page stays, `.busy-over > :not(.busy-pill) { opacity: .45; pointer-events: none }`, with a sticky working pill prepended. Keep it in state (`st.busy`, marked `.over`) and re-apply it after every `draw()` while the action runs, so a redraw mid-action keeps the pill; views that used to `return st.busy` skip it when `.over`.
@@ -707,8 +725,8 @@ and read the active section back.
 - **Trigger:** a page has fields or editors a person types into (a wizard page, Settings, a small "new item" window), you are about to write a debounced save (`setTimeout(save, 350)`), an **Apply** button, a save that runs only on `change` / blur, or a Save toast. Symptom: "I saved and it was gone after a restart", or the last few characters typed before closing Settings are lost.
 - **Discrimination:** three separate holes: (1) typed values lived only in page state and the "✅ Progress Saved" toast covered only the step the user was on; (2) Settings fields saved on blur or on an Apply button, and Browse… filled a field without saving it; (3) a debounced save still waiting is lost when the window closes, because `windowWillClose` removes the script message handler, and when the app quits. A toast is only honest when it follows the write it names. Explicit editors with Save / Cancel keep those buttons: store their UNSAVED text as a draft (restored with the editor open), and let Save / Cancel decide.
 - **Action:**
-  1. One helper in the shared UI module: `autosaver(fn, ms)` returns `save()` (debounced) with `save.now()`, and registers each pending run in a set; `onFlush(fn)` registers one-off work (text typed into an "add a chip" box, not added yet); `flushPending()` runs them all. The page exposes `window.__osm.flush = () => flushPending()`. Every debounced save uses `autosaver`, never a bare `setTimeout`.
-  2. Native, before the page can no longer answer: `windowShouldClose` returns false once, awaits `webView.callAsyncJavaScript("if (window.__osm && window.__osm.flush) await window.__osm.flush();", arguments: [:], in: nil, in: .page)` with a 1.5 s cap, then `performClose` again (a flag lets the second call through). `applicationShouldTerminate` flushes every window through a `DispatchGroup` and returns `.terminateLater`, replying `true` when the group finishes. A page's own "close window" bridge call must use `performClose`, not `close()`, so it goes through the same path.
+  1. One helper in the shared UI module: `autosaver(fn, ms)` returns `save()` (debounced) with `save.now()`, and registers each pending run in a set; `onFlush(fn)` registers one-off work (text typed into an "add a chip" box, not added yet); `flushPending()` runs them all. The page exposes `window.__app.flush = () => flushPending()`. Every debounced save uses `autosaver`, never a bare `setTimeout`.
+  2. Native, before the page can no longer answer: `windowShouldClose` returns false once, awaits `webView.callAsyncJavaScript("if (window.__app && window.__app.flush) await window.__app.flush();", arguments: [:], in: nil, in: .page)` with a 1.5 s cap, then `performClose` again (a flag lets the second call through). `applicationShouldTerminate` flushes every window through a `DispatchGroup` and returns `.terminateLater`, replying `true` when the group finishes. A page's own "close window" bridge call must use `performClose`, not `close()`, so it goes through the same path.
   3. Settings: every text field is a `liveField` (saves on input through `autosaver`, and at once on `change`); remove Apply buttons; a Browse… that fills a field also saves it.
   4. Wizard-style pages: one `edited()` every field and open editor calls. It records the page state for the native close handler, and when the app's auto-save setting is on it writes the draft record and the saved run (`SavedProgress.edits`). With the setting off, nothing is written until ⌘S, and ⌘S always writes everything first, then shows ✅. Reopening restores it (`restoreEdits`).
   5. A "new item" window (e.g. a new rule) under auto-save adds the item as you type it and updates it in place; Cancel / Esc takes it back out; removing its text removes it. Blank rows are dropped by the store's load and save (`Rules.withoutBlanks`), so a never-filled "＋ Add" row doesn't pile up.
@@ -717,7 +735,7 @@ and read the active section back.
 ## 43. `evaluateJavaScript` probes share ONE global scope, and a Promise result is an error
 
 - **Trigger:** you verify a WKWebView page from outside with repeated `evaluateJavaScript` calls (an app's `eval` URL hook, a test harness), and a later probe returns a stale value, nothing, or an "unsupported type" error.
-- **Discrimination:** WebKit runs each call as a classic script in the page's global lexical scope. A top-level `const f = …` in probe 2 throws `SyntaxError: Can't create duplicate variable: 'f'` when probe 1 declared it too, and the whole probe does nothing. This can make a field look stuck for several inputs in a row while the app is fine, or let a probe step silently never run, so its "pass" is really the previous step's state; so a step that plants state must assert the state is there before it acts. A probe whose last expression is a Promise (`import(...).then(...)`) fails with `WKErrorDomain Code=5 "JavaScript execution returned a result of an unsupported type"`. Before you call either one a bug, check the raw error text your harness wrote.
+- **Discrimination:** WebKit runs each call as a classic script in the page's global lexical scope. A top-level `const f = …` in probe 2 throws `SyntaxError: Can't create duplicate variable: 'f'` when probe 1 declared it too, and the whole probe does nothing. That can make a field look stuck for several inputs in a row while the app is fine, or let a probe step that NEVER ran "pass" on the previous step's state; so a step that plants state must assert the state is there before it acts. A probe whose last expression is a Promise (`import(...).then(...)`) fails with `WKErrorDomain Code=5 "JavaScript execution returned a result of an unsupported type"`. Before you call either one a bug, check the raw error text your harness wrote.
 - **Action:** wrap every probe in an IIFE (`(() => { const f = …; return …; })()`) or use `var`. For async answers, start the work and stash the result (`….then(r => { window.__r = JSON.stringify(r) }); 1`), then read `window.__r` in a second call. Or use `callAsyncJavaScript` in native code, which awaits a Promise. Every probe returns the preconditions it relied on next to its result.
 
 ## 44. A celebration that plays ONCE through redraws: pin Web Animations to one start time
@@ -729,25 +747,25 @@ and read the active section back.
 ## 45. A view that throws while drawing freezes the LAST screen: a finished run looks stuck forever
 
 - **Trigger:** a progress screen (a spinner, stages, a running clock) stays up after the work behind it is done, and its Stop / Cancel button "does nothing". Or you write a view function that shows a remembered value at once and calls helpers to finish it.
-- **Discrimination:** it looks like a hung backend, but read the signals first. The native side is idle (`sample <pid> 2` shows no app frames), the output is on disk, and the page still answers an eval, so JS is not hung either. The page's clock froze at the moment the work ended, so the reply DID arrive and the code after the `await` ran (it cleared the ticker). What failed is the redraw after it. The usual cause is a `const helper = () => …` called above its definition inside the same view function. That is a temporal-dead-zone ReferenceError that fires only on the branch that calls it early. For example, a branch for a value seen before, after a "not there yet" check. So every quick test passed, and the error was an unhandled rejection nobody saw. Stop looked dead because it only stopped the worker, which had already finished.
+- **Discrimination:** it looks like a hung backend, but read the signals first. The native side is idle (`sample <pid> 2` shows no app frames), the output is on disk, and the page still answers an eval, so JS is not hung either. The page's clock froze at the moment the work ended, so the reply DID arrive and the code after the `await` ran (it cleared the ticker). What failed is the redraw after it. The usual cause is a `const helper = () => …` called above its definition inside the same view function. That is a temporal-dead-zone ReferenceError that fires only on the branch that calls it early. In one case, it was a remembered value shown after an "empty" check. So every quick test passed, and the error was an unhandled rejection nobody saw. Stop looked dead because it only stopped the worker, which had already finished.
 - **Action:**
   - (1) Reproduce, don't reason: collect errors in the page with an eval that installs `error` / `unhandledrejection` listeners, then replay the flow. The stack names the line.
   - (2) Fix at the call site: call helpers only below their definitions.
   - (3) Fix the class: the view's `draw()` wraps building the step in try/catch and renders a `.page-error` banner (the message plus Reload), never leaving the old screen up. The layout guard fails on any `.page-error`.
   - (4) Stop ends the run on the page FIRST (clear the ticker, drop the run state, redraw), then asks native to kill the worker.
-  - (5) Add a guard demo that ENDS the run from the state that broke it (every path: new and linked), and assert the progress card is gone.
+  - (5) Add a guard demo that ENDS the run from the state that broke it (every path that reaches it), and assert the progress card is gone.
   - (6) Test end to end with a stand-in worker. Put a fake CLI on `PATH` for a second app instance started with `open -n --env PATH=… --env <APP>_HOME=<scratch store>`.
 
 ## 46. A module the entry module imports must not READ the entry's exports while it loads: every window goes blank
 
 - **Trigger:** every window of the app is blank at once, or the layout guard reports "guard missing" on every view, right after you added a top-level line like `const DEMO = query.demo === "x"` to a module that `main.js` imports (and that imports `{ query }` from `main.js`).
 - **Discrimination:** it parses fine (`node --input-type=module --check` passes, `testEveryWebScriptParses` passes), so it is not item 38. ES module cycles evaluate the imported module FIRST, so `main.js`'s `export const query = …` is still in its temporal dead zone: the top-level read throws a ReferenceError and the whole graph fails to load. The same import used INSIDE a function is fine (it runs after `main.js` finished).
-- **Action:** at a module's top level, read only what it owns: `new URLSearchParams(location.search)` instead of the entry's `query`, or move the read into the function that needs it. Note the rule in the project's CLAUDE.md. The layout guard catches it (every view fails), so always run the full guard after touching module tops.
+- **Action:** at a module's top level, read only what it owns: `new URLSearchParams(location.search)` instead of the entry's `query`, or move the read into the function that needs it. Note the rule in the project's contributor notes. The layout guard catches it (every view fails), so always run the full guard after touching module tops.
 
 ## 47. A field's caret is drawn ONCE, then never again: a positioned field above a scroll container with no stacking context
 
-- **Trigger:** "the cursor blinks once then disappears", "I can't click into X", "Tab doesn't reach X", while focus checks say X IS focused (`document.activeElement`, the AX focused element) and typing still lands in it. Above all on a screen whose content below the field is long (e.g. a mail composer: a forward carries the whole original email, so the body always scrolls; a new message's short body never shows it).
-- **Discrimination:** not a focus bug, so no focus fix helps (explicit Tab handling, an inert preview frame, an activation repair). A headless or OFFSCREEN WKWebView is never the active window and draws NO caret at all, so every probe "passes"; a DOM / focus log records focus, never paint. The cause is WebKit's repaint: a field inside a POSITIONED box (`position: relative`, here the anchor of an autocomplete dropdown) above a sibling scroll container (`overflow: auto`) that has NO stacking context of its own gets its caret painted once and never repainted. A sibling field that is not inside a positioned box (the Subject) blinks normally in the same window.
+- **Trigger:** "the cursor blinks once then disappears", "I can't click into X", "Tab doesn't reach X", while focus checks say X IS focused (`document.activeElement`, the AX focused element) and typing still lands in it. Above all on a screen whose content below the field is long (in a mail composer, for example: a forward carries the whole original email, so the body always scrolls; a new message's short body never showed it).
+- **Discrimination:** not a focus bug, so no focus fix helps (explicit Tab handling, an inert preview frame and an activation repair all fail). A headless or OFFSCREEN WKWebView is never the active window and draws NO caret at all, so every probe "passes"; a DOM / focus log records focus, never paint. The cause is WebKit's repaint: a field inside a POSITIONED box (`position: relative`, here the anchor of an autocomplete dropdown) above a sibling scroll container (`overflow: auto`) that has NO stacking context of its own gets its caret painted once and never repainted. A sibling field that is not inside a positioned box (the Subject) blinks normally in the same window.
 - **Action:** give the SCROLLER its own stacking context: `isolation: isolate` (no layout change; `will-change: transform` or `position: relative; z-index: 0` measured the same). A stacking context on the FIELD's box (`z-index`, `will-change` there) did NOT fix it. Don't add isolation to every scroller blindly: a `position: fixed` popup rendered inside an isolated scroller can no longer stack above later siblings. Guard it with a CSS-scanning test on that rule. **Measure in the installed, ACTIVE app:** drive it with any automation tool and diff 4 screenshots 0.2 s apart (a 3-4 px column at the field's edge is the caret). To find which CSS property matters, ship ONE temporary build whose suspects are switches read from a prefs row (`<html data-dbg>` + CSS), then flip them between runs instead of rebuilding per guess.
 
 ## 48. Contenteditable / inline-edit fields must NEVER commit on `blur` — WebKit fires synthetic blurs on menu dismissal, window focus shifts, and first-responder handoffs
@@ -772,10 +790,9 @@ and read the active section back.
   headless test pane rejects them too, so a "works on click" check proves nothing about the automatic path. Inside a
   gesture, a one-shot `copy` listener calling `clipboardData.setData("text/html", …)` works, but WebKit re-serializes
   that HTML (computed inline styles, a `<meta charset>` head) before it reaches the pasteboard: links survive, your exact
-  markup does not. A view that rewrote its links (e.g. one that points every link at a private `app-open://` sink) copies the
+  markup does not. A view that rewrote its links (for example, every link pointed at a private `app-open://` scheme) copies the
   rewritten href unless the copy rebuilds the HTML with the real targets.
-- **Action:** automatic copies go through native code: a command that writes `NSPasteboard.general` on the main thread
- . A copy the app owns (⌘C over a sandboxed frame) writes text/plain AND
+- **Action:** automatic copies go through native code: a command that writes `NSPasteboard.general` on the main thread. A copy the app owns (⌘C over a sandboxed frame) writes text/plain AND
   text/html with every anchor pointed at its real target, and the receiving editor decodes any private href that still
   arrives (`transformPastedHTML`). Prove it with a real-WebKit probe that reads `NSPasteboard.general.string(forType: .html)`.
 
@@ -784,11 +801,11 @@ and read the active section back.
 - **Trigger:** a WKWebView probe checks that a control is on top, clears old state between steps, or needs a picture of
   an interactive state that a simple load-wait-shoot screenshot tool cannot reach.
 - **Discrimination:** (1) a launch animation or splash covering the window for its first seconds makes
-  `elementFromPoint` return the overlay (`DIV.boot-grid`), which reads as "the button is covered"; (2) deleting toast
+  `elementFromPoint` return the overlay (e.g. the splash's grid `DIV`), which reads as "the button is covered"; (2) deleting toast
   or list nodes the framework rendered (`el.remove()` on a Solid `<Show>` child) leaves the framework writing into the
   detached node, so the NEXT state looks missing; (3) `WKWebView.takeSnapshot(with:)` works on a titled window that was
   never ordered on screen, so no window has to appear for a picture.
-- **Action:** wait for the overlay to leave (`!document.querySelector('.boot')`) before any on-top check; never remove
+- **Action:** wait for the overlay to leave (e.g. `!document.querySelector('.boot-splash')`) before any on-top check; never remove
   framework nodes, assert on content unique to each step instead; for a picture, call `takeSnapshot` with a
   `WKSnapshotConfiguration.rect` around the control, write the PNG to the scratchpad behind an env var
   (`PROBE_SNAPSHOT=<png>`), and Read it. **Two traps in that picture:** a never-shown window runs no
@@ -829,8 +846,8 @@ and read the active section back.
 ## 55. A stub for the native bridge must parse the message, and never forward what it stubs
 
 **Trigger:** a test replaces `window.webkit.messageHandlers.<name>.postMessage` to catch a side-effecting call (clipboard, Finder, a native menu) before it reaches native.
-**Discrimination:** the page posts `JSON.stringify({ id, type, ...params })`, a STRING. A stub that tests `m.type` sees `undefined`, matches nothing, forwards everything, and the real side effect happens: a Copy-button test can overwrite the Mac's real clipboard that way.
-**Action:** `const m = JSON.parse(raw)` first; for the stubbed type, record it and RETURN (never call the original). To fake a native reply to a `call()`, answer through the receive hook: `window.__bridgeRecv({ id: m.id, ok: true, data: { … } })` (e.g. the item a native context menu would return).
+**Discrimination:** the page posts `JSON.stringify({ id, type, ...params })`, a STRING. A stub that tests `m.type` sees `undefined`, matches nothing, forwards everything, and the real side effect happens: a Copy-button test can overwrite the real clipboard that way.
+**Action:** `const m = JSON.parse(raw)` first; for the stubbed type, record it and RETURN (never call the original). To fake a native reply to a `call()`, answer through the receive hook: `window.__nativeRecv({ id: m.id, ok: true, data: { … } })` (whatever your page's receive hook is named) (e.g. the item a native context menu would return).
 
 ## 56. Spelling squiggles live on the TEXT NODE, and `spellcheck="false"` is read per line
 
@@ -841,7 +858,7 @@ a checked line it does not, because WebKit checks the paragraph the selection le
 **Action:** marks are attached to the text node, so give that text a NEW element: a framework that re-parents the same
 text node into a different element (CodeMirror after a mark's `tagName` changes) clears them; a text node replaced
 behind the framework's back also clears them but breaks the framework's view (never do that). Verify with
-a snapshot of the page's pixels, not the DOM: markers are not in the DOM.
+page pixels (a `takeSnapshot` of the web view), not the DOM: markers are not in the DOM.
 
 ## 57. Escape key dismissal for WKWebView modals / lightboxes requires both a capture-phase `window` listener and an AppKit `keyCode == 53` bridge, plus `.blur()` on the trigger when closing
 
@@ -849,7 +866,7 @@ a snapshot of the page's pixels, not the DOM: markers are not in the DOM.
 - **Discrimination:** a bubble-phase `document.addEventListener("keydown")` only fires when `WKWebView` is `firstResponder` and no inner handler stops propagation. Furthermore, calling `trigger.focus()` on close activates `.linked:focus-visible { filter: brightness(1.06) }` in WebKit even after a mouse click, leaving a CSS filter raster buffer stuck on the trigger element.
 - **Action:**
   1. **Capture-phase `window` listener in JS:** attach `window.addEventListener("keydown", (e) => { if (isOpen() && (e.key === "Escape" || e.key === "Esc" || e.keyCode === 27)) { e.preventDefault(); e.stopPropagation(); close(); } }, true)` and focus the dialog container (`tabindex="-1"`) on open.
-  2. **AppKit `NSEvent` local monitor fallback:** in `NSEvent.addLocalMonitorForEvents(matching: .keyDown)`, when `e.keyCode == 53` (`Escape`) in the app's web view window and `win.firstResponder !== wc.web.webView`, restore `win.makeFirstResponder(wc.web.webView)` and invoke the JS `escape()` handler directly (`wc.web.call("escape")`).
+  2. **AppKit `NSEvent` local monitor fallback:** in `NSEvent.addLocalMonitorForEvents(matching: .keyDown)`, when `e.keyCode == 53` (`Escape`) in a web-view window and `win.firstResponder !== wc.web.webView`, restore `win.makeFirstResponder(wc.web.webView)` and invoke the JS `escape()` handler directly (`wc.web.call("escape")`).
   3. **Blur the trigger on close:** call `trigger.blur()` instead of `trigger.focus()` when closing a click-triggered lightbox so `:focus-visible` filters never stick to the artwork.
 
 ## 58. A HIDDEN window holds every CSS animation at 0, and synthetic pointer events can't be captured
@@ -922,11 +939,11 @@ blaming the code. *Action:*
 - `cfg.websiteDataStore = .nonPersistent()`: the mock saves its prefs in localStorage, and a template made by the last
   run changed the next run's results.
 - Stub `navigator.clipboard.writeText` before any copy: a mock that "writes the clipboard" writes the Mac's REAL
-  pasteboard (`CFPasteboardSetExpirationDate` in the output is the tell).
+  pasteboard (a probe can overwrite the user's clipboard this way; `CFPasteboardSetExpirationDate` in the output is the tell).
 - In a Swift `"""` string a JS regex escape needs two backslashes (`/\\s+/`, `/\\?/`); one is a Swift compile error
   that also shows as "cannot convert String to (String, String)" on the step array.
 - A bare key in a Gmail-style keymap waits the sequence beat (~350 ms) before it runs: sleep past it.
-- Record which binding a key ran (e.g. a `window.__lastAction` set in the dispatcher) before suspecting the handler.
+- Record which binding a key ran (e.g. `window.__lastAction` in the dispatcher) before suspecting the handler.
 - Close what earlier steps opened (Settings ate a probe's `n` as typing in its search box), and check the fixture's
   facts (a template WITH a fill-in rightly took the cursor the step expected on another line).
 - Write the composer's state through its editor (`.ProseMirror`'s `.editor`), not synthetic `beforeinput` events,
@@ -948,13 +965,13 @@ blaming the code. *Action:*
   2. Element handlers return early on `e.defaultPrevented`, and a list item answers Enter only, never Space when Space
      is a global shortcut.
   3. Test both from a running instance with stubbed writes: focus an item, dispatch the key on IT, and call the native
-     forward hook (the page's escape hook), then read the state.
+     forward hook (e.g. `window.__app.escape()`), then read the state.
 
 ## 64. What makes the WebKit graphics process ("<App> Graphics and Media") busy, and how to measure it
 
 - **Trigger:** Activity Monitor shows "<App> Graphics and Media" (`com.apple.WebKit.GPU`) high while the app sits idle,
   the Mac runs hot or freezes, or you add any looping effect to a WKWebView page.
-- **Discrimination:** measured on a 5K window (3840 x 2560 at 50 Hz), music paused:
+- **Discrimination:** measured on a 5K window (3840 x 2560 at 50 Hz), app idle:
   - Anything that REPAINTS every frame costs about the whole window, whatever the element's size: six small cards
     breathing via `box-shadow` 54%, a conic border turned through `@property --angle` 26%.
   - Moving HUGE layers is just as costly even with `transform` only: four 60vw blurred aurora blobs drifting by
@@ -971,7 +988,7 @@ blaming the code. *Action:*
      `ctypes.CDLL("/usr/lib/libSystem.B.dylib").responsibility_get_pid_responsible_for_pid(pid)` == the app's pid;
      sample with `top -l 4 -s 3 -pid … -stats pid,cpu` and drop the first sample.
   2. Find the culprit by switching ONE effect off at a time through an injected `<style>` (`display: none`, then
-     `animation: none`), 10 s per state, then put it back. Alternate A/B samples: playback, a track change or the user's own
+     `animation: none`), 10 s per state, then put it back. Alternate A/B samples: background work or the user's own
      clicks swing the baseline by 5-10 points between runs.
   3. Fix by pausing everything while unseen (the shell reports
      `NSWindow.didChangeOcclusionStateNotification` to the page).
@@ -1034,7 +1051,7 @@ mid-session) cannot win this way: route its Esc through the app's own escape hoo
   `innerHTML`) records nothing, so ⌘Z inside the island is WebKit's no-op, and the app's history never hears the key
   unless the island forwards it. Edit ▸ Undo through the responder chain hits the same no-op. (2) Setting the selection
   inside a FOCUSED editable makes WebKit scroll it into view synchronously. Write a stale position and then the right
-  one in two steps, and the page has already jumped to the first (measured 1 076px in a document editor); Chrome often hides
+  one in two steps, and the page has already jumped to the first (measured 1 076px); Chrome often hides
   this.
 - **Action:** (1) the island's keydown takes ⌘Z / ⇧⌘Z (and ⌘Y), commits its own pending text, then runs the
   document's undo / redo; never rely on the native undo inside a script-filled editable. (2) Compute the final
@@ -1044,7 +1061,7 @@ mid-session) cannot win this way: route its Esc through the app's own escape hoo
 
 - **Trigger:** native code sends a key chord into a web page to drive the site (a mode toggle, a shortcut) with
   `NSEvent.keyEvent` + `window.sendEvent`, or you need one web view dark and another light.
-- **Discrimination:** two silent failures, both measured in app logs. (1) A HIDDEN `WKWebView` (a background
+- **Discrimination:** two silent failures, both measured in a tabbed web-wrapper app's logs. (1) A HIDDEN `WKWebView` (a background
   tab) refuses first responder, so the event goes to whatever view already has focus: the visible tab got two toggles
   and the background tab none. (2) When the page does not consume the key (still loading, a modal's input focused),
   WebKit hands the unhandled event back up the responder chain to the main menu's key equivalents: an app menu item on
@@ -1094,7 +1111,7 @@ mid-session) cannot win this way: route its Esc through the app's own escape hoo
   which starts another tool inside the first; (2) even off main, the waits starve the SHARED pool: 80 page calls each
   hold a pool thread waiting for an output read queued on that same pool, every thread is taken, no read ever starts
   (`sample <pid>`: 100+ threads in your shell helper under `__ulock_wait`, main thread idle). Moving calls off main
-  fixes (1) only; a fix that does only that still freezes. Process exit itself is fine
+  fixes (1) only. Process exit itself is fine
   (`terminationHandler` is delivered on its own queue even with the pool full, measured).
 - **Action:**
   - Read a tool's pipes on a `Thread` of its own (`Thread { data = h.readDataToEndOfFile(); done.signal() }.start()`),
@@ -1109,11 +1126,11 @@ mid-session) cannot win this way: route its Esc through the app's own escape hoo
 
 ## 74. A headless KEY hook must refuse any window that isn't a test window, inside the APP
 
-- **Trigger:** an app test hook that sends a real key press to "the frontmost window" (`<scheme>://key`, a `sendEvent`
+- **Trigger:** an app test hook that sends a real key press to "the frontmost window" (a `<scheme>://key` URL command, a `sendEvent`
   helper), used by a test that first checks which document is in front.
 - **Discrimination:** the check and the key are two separate URL commands; the user (or another window) can come to
-  the front in between. For example, the check passes, the user brings their own document forward, and a key chord meant for a
-  scratch note types into the real document. An eval can guard itself in the same JS
+  the front in between. In one real run the check passed, the user brought a real document forward, and a shortcut meant for a
+  scratch note typed text at the top of that real document. An eval can guard itself in the same JS
   run; a key press can't, so the guard has to live where the key is sent.
 - **Action:** the native key hook refuses unless the target window is the layout guard's own window, or its document
   AND folder are scratch paths (`/tmp`, `/private/tmp`, `/var/folders`, or none), and writes `refused: …` to its
@@ -1222,7 +1239,7 @@ to 100% every load and has none). **Discrimination:** the obvious script routes 
 (a) `input.value = "200%"` + an Enter `KeyboardEvent` on the combo box's `<input>` updates the text but opens the
 dropdown and leaves it open on screen; (b) `mousedown, mouseup, click` on the item picks the value but the trailing
 `click` re-opens the menu (`aria-expanded="true"`). A bare `.click()` does nothing (Closure listens to mousedown/up).
-And a working pick that the user can SEE (the menu flashes, the page jumps 100% → 200%) is still a defect: an automation like this should run unseen. **Action:**
+And a working pick that the user can SEE (the menu flashes, the page jumps 100% → 200%) is still the defect: an automation like this should run unseen. **Action:**
 1. Find the control by id and wait for it (`#zoomSelect`, its `input` holding a value, `aria-disabled` not `true`),
    polling every 100 ms from a `.atDocumentEnd` user script, main frame only, path-gated to the one doc.
 2. Open: `mousedown` + `mouseup` (MouseEvent, `bubbles`, `cancelable`, `view: window`, `button: 0`, clientX/Y at the
@@ -1233,7 +1250,7 @@ And a working pick that the user can SEE (the menu flashes, the page jumps 100% 
    before step 2 and removed ~150 ms after the pick; a second `<style>` with `.kix-appview-editor { opacity: 0 !important; }`
    from the start until the value is set (+120 ms for the repaint), with a 15 s fail-safe that removes it anyway.
    Measured: the doc showed 1.3 s after launch, 0.8 s after a reload.
-4. Expose a page function (e.g. `window.__setZoom(value)`) so a Settings change applies to the open page at once, and re-add the user
+4. Expose a `window.__setDocZoom(value)` function so a change in the app's settings applies to the open page at once, and re-add the user
    script whenever its baked value changes (`removeAllUserScripts` wipes every script: keep them in ONE installer).
 5. Verify unseen: a MutationObserver counting menus that are visible AND `opacity != 0` during a live change must read 0;
    the input reads the value; `document.activeElement` is the text-event iframe.
