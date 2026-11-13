@@ -1239,7 +1239,8 @@ to 100% every load and has none). **Discrimination:** the obvious script routes 
 (a) `input.value = "200%"` + an Enter `KeyboardEvent` on the combo box's `<input>` updates the text but opens the
 dropdown and leaves it open on screen; (b) `mousedown, mouseup, click` on the item picks the value but the trailing
 `click` re-opens the menu (`aria-expanded="true"`). A bare `.click()` does nothing (Closure listens to mousedown/up).
-And a working pick that the user can SEE (the menu flashes, the page jumps 100% → 200%) is still the defect: an automation like this should run unseen. **Action:**
+And a working pick that the user can SEE (the menu flashes, the page jumps 100% → 200%) is still a defect: an
+automation like this should run unseen. **Action:**
 1. Find the control by id and wait for it (`#zoomSelect`, its `input` holding a value, `aria-disabled` not `true`),
    polling every 100 ms from a `.atDocumentEnd` user script, main frame only, path-gated to the one doc.
 2. Open: `mousedown` + `mouseup` (MouseEvent, `bubbles`, `cancelable`, `view: window`, `button: 0`, clientX/Y at the
@@ -1250,7 +1251,39 @@ And a working pick that the user can SEE (the menu flashes, the page jumps 100% 
    before step 2 and removed ~150 ms after the pick; a second `<style>` with `.kix-appview-editor { opacity: 0 !important; }`
    from the start until the value is set (+120 ms for the repaint), with a 15 s fail-safe that removes it anyway.
    Measured: the doc showed 1.3 s after launch, 0.8 s after a reload.
-4. Expose a `window.__setDocZoom(value)` function so a change in the app's settings applies to the open page at once, and re-add the user
+4. Expose a `window.__setDocZoom(value)` function so a Settings change applies to the open page at once, and re-add the user
    script whenever its baked value changes (`removeAllUserScripts` wipes every script: keep them in ONE installer).
 5. Verify unseen: a MutationObserver counting menus that are visible AND `opacity != 0` during a live change must read 0;
    the input reads the value; `document.activeElement` is the text-event iframe.
+
+## 86. `overflow: hidden` can still be scrolled by script: `scrollIntoView` slides a hidden panel SIDEWAYS
+
+*Trigger:* a panel that slides in by `transform` lives in an `overflow: hidden` box, and something inside it calls
+`scrollIntoView` (a "scroll to the playing row" on render), or a user says a sidebar "bleeds into the page" / "pushes
+past" its own edge, often on one page only. *Discrimination:* `hidden` only hides scrollbars; the box is still a
+scroll container, so `scrollIntoView({block: "nearest"})` (its `inline` defaults to `nearest` too) scrolls it
+sideways to reach a row that is still off-screen. Measured: `#sidebar.scrollLeft` = 378 for the whole slide, the panel
+drew 378 px left of its own box, then snapped back when the transform ended. *Action:* (1) the clipping box gets `overflow: clip` (it cannot be
+scrolled at all; `clip` on one axis with `auto` on the other turns into `hidden`, so use it on boxes that never
+scroll); (2) never call `scrollIntoView` in the app: one helper scrolls ONE named scroller up / down only, converting
+screen px to the scroller's own when it sits inside a scaled parent; (3) a check that greps the web layer for `.scrollIntoView(` and fails. Measure it in the app: sample
+`scrollLeft` of every `overflow: hidden` ancestor and the panel's rect against its box on each frame of the slide.
+
+## 87. A transform transition on a big container flickers when its layer exists only during the transition
+
+*Trigger:* you animate `transform` (scale, translate) on a large container: a page column shrinking beside a sidebar,
+a whole view sliding. The user says elements "flicker" while it opens and closes, and a MutationObserver shows the
+DOM did not change. *Discrimination:* WebKit gives the container its own compositing layer only while the transition
+runs, so every start builds a fresh full-window layer whose tiles paint a beat late (cards blink), and the end tears it
+down again. Not a re-render, not a fit loop. *Action:* `will-change: transform` on the container ALWAYS, not only
+while animating; measure the idle cost after (in one app, idle CPU went 8.4% → 8.1%). A check asserts the
+computed `will-change` stays `transform` open and closed.
+
+## 88. Inside a scaled container, `getBoundingClientRect` is scaled and `offsetWidth` is not: never mix them
+
+*Trigger:* a layout function measures inside an element that can carry `transform: scale()` (a scale-to-fit
+page column): title placement, "does it fit", a seek bar, a scroll-into-view. *Discrimination:* rects come back in
+screen px (×0.79 while scaled), `offsetWidth` / `clientWidth` / `scrollTop` in the element's own px. Comparing one to
+the other makes "fits" decisions that flip when the scale returns to 1. A ratio of two rects, or two rects compared,
+is safe. *Action:* convert with `k = rect.height / el.offsetHeight` (works mid-transition), or compare rects with
+rects only. Canvas sizing from the rect (`box.width * dpr`) is fine: it matches the screen pixels.
