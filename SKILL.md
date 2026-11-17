@@ -1239,8 +1239,7 @@ to 100% every load and has none). **Discrimination:** the obvious script routes 
 (a) `input.value = "200%"` + an Enter `KeyboardEvent` on the combo box's `<input>` updates the text but opens the
 dropdown and leaves it open on screen; (b) `mousedown, mouseup, click` on the item picks the value but the trailing
 `click` re-opens the menu (`aria-expanded="true"`). A bare `.click()` does nothing (Closure listens to mousedown/up).
-And a working pick that the user can SEE (the menu flashes, the page jumps 100% → 200%) is still a defect: an
-automation like this should run unseen. **Action:**
+And a working pick that the user can SEE (the menu flashes, the page jumps 100% → 200%) is still a defect: an automation like this should run unseen. **Action:**
 1. Find the control by id and wait for it (`#zoomSelect`, its `input` holding a value, `aria-disabled` not `true`),
    polling every 100 ms from a `.atDocumentEnd` user script, main frame only, path-gated to the one doc.
 2. Open: `mousedown` + `mouseup` (MouseEvent, `bubbles`, `cancelable`, `view: window`, `button: 0`, clientX/Y at the
@@ -1263,7 +1262,8 @@ automation like this should run unseen. **Action:**
 past" its own edge, often on one page only. *Discrimination:* `hidden` only hides scrollbars; the box is still a
 scroll container, so `scrollIntoView({block: "nearest"})` (its `inline` defaults to `nearest` too) scrolls it
 sideways to reach a row that is still off-screen. Measured: `#sidebar.scrollLeft` = 378 for the whole slide, the panel
-drew 378 px left of its own box, then snapped back when the transform ended. *Action:* (1) the clipping box gets `overflow: clip` (it cannot be
+drew 378 px left of its own box, then snapped back when the transform ended. It shows up only on pages whose panel holds such a
+list, which is why it can look like a one-page bug. *Action:* (1) the clipping box gets `overflow: clip` (it cannot be
 scrolled at all; `clip` on one axis with `auto` on the other turns into `hidden`, so use it on boxes that never
 scroll); (2) never call `scrollIntoView` in the app: one helper scrolls ONE named scroller up / down only, converting
 screen px to the scroller's own when it sits inside a scaled parent; (3) a check that greps the web layer for `.scrollIntoView(` and fails. Measure it in the app: sample
@@ -1276,14 +1276,30 @@ a whole view sliding. The user says elements "flicker" while it opens and closes
 DOM did not change. *Discrimination:* WebKit gives the container its own compositing layer only while the transition
 runs, so every start builds a fresh full-window layer whose tiles paint a beat late (cards blink), and the end tears it
 down again. Not a re-render, not a fit loop. *Action:* `will-change: transform` on the container ALWAYS, not only
-while animating; measure the idle cost after (in one app, idle CPU went 8.4% → 8.1%). A check asserts the
+while animating; measure the idle cost after (in one measured app the idle perf budget went 8.4% → 8.1%). A check asserts the
 computed `will-change` stays `transform` open and closed.
 
 ## 88. Inside a scaled container, `getBoundingClientRect` is scaled and `offsetWidth` is not: never mix them
 
-*Trigger:* a layout function measures inside an element that can carry `transform: scale()` (a scale-to-fit
-page column): title placement, "does it fit", a seek bar, a scroll-into-view. *Discrimination:* rects come back in
+*Trigger:* a layout function measures inside an element that can carry `transform: scale()` (a scale-to-fit page
+column): title placement, "does it fit", a seek bar, a scroll-into-view. *Discrimination:* rects come back in
 screen px (×0.79 while scaled), `offsetWidth` / `clientWidth` / `scrollTop` in the element's own px. Comparing one to
 the other makes "fits" decisions that flip when the scale returns to 1. A ratio of two rects, or two rects compared,
 is safe. *Action:* convert with `k = rect.height / el.offsetHeight` (works mid-transition), or compare rects with
 rects only. Canvas sizing from the rect (`box.width * dpr`) is fine: it matches the screen pixels.
+
+## 89. A wrapped `<button>` in a baseline-aligned grid draws rows OVER each other
+
+*Trigger:* a label/value grid (`display: grid; align-items: baseline`, labels in one column, values in the other)
+whose values are `<button>`s (a clickable name or address), and a report like "the text gets jumbled up" or "lines
+overlap", often blamed on a monitor's resolution. *Discrimination:* it is WIDTH, not resolution: it appears only once a
+button's text wraps. A `<button>` is always an inline-BLOCK in WebKit (`display: inline` is ignored), and an
+inline-block's baseline is its LAST line, so the row's label drops to the wrapped value's second line and WebKit's
+baseline track sizing then under-sizes the row: in one mail header the To row drew 25 px into the From row at a 280 px width.
+A probe that only checks "label level with its text" passes, because the label IS level with the (last) line.
+*Action:* make the button `display: inline-flex` with ONE child span holding the text (`<button><span>text</span></button>`,
+the span `min-width: 0; overflow-wrap: anywhere`): a flex container's baseline is its first item's FIRST line, so the
+label sits on line 1 and every row clears the one above. Never `inline-flex` with the text as direct children (each
+text run and `<wbr>` becomes its own flex item and stops wrapping). Check it under real WebKit: collect each row's
+ink with a `Range` over its contents (`getClientRects()`, min top / max bottom) and fail when a row's top is above the
+previous row's bottom; run it at a width where the longest value wraps.
